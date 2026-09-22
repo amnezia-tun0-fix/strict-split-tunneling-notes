@@ -5,6 +5,8 @@ registers and is not restated here. `git log` in each fork has what changed line
 
 ## Index
 
+- **2026-09-23** — first review on #199: the hook now compiles out off Android, and is faster on it
+- **2026-09-23** — submitted: three PRs, a comment on the issue, and the notes published
 - **2026-09-23** — a second PR for the same issue exists, and it caught an ICMP hole in ours
 - **2026-09-23** — rebased and cut into three AmneziaWG-only PR branches
 - **2026-09-22** — the switch moves out of the app list; the series becomes AmneziaWG only
@@ -18,6 +20,48 @@ registers and is not restated here. `git log` in each fork has what changed line
 - **2026-09-16** — rebased all four branches onto current upstream
 - **2026-07-26** — forks confirmed as the only surviving copy
 - **2026-07-01** — filter implemented on both datapaths
+
+## 2026-09-23 — first review on #199: the hook now compiles out off Android, and is faster on it
+
+@makekryl, the author of #174, reviewed the Go PR within the hour: the check stayed in
+non-Android builds, where #174's build tags remove it, and the per-packet cost was
+"severe". Half of that was right, and the other half was worth measuring.
+
+The platforms part was a fair hit. `uidfilter.Supported` is now a build-time constant and
+the hook reads `if uidfilter.Supported && !uidfilter.AllowOutboundPacket(...)`; `go tool nm`
+shows the symbol in the android build only. The cost part turned out to be about the clock,
+not the design: `time.Now()` was 81 ns of the cache's 114 ns per hit ([[G12]]). Reading it
+once per 64 lookups, dropping the mutex — the cache belongs to the tun-read goroutine — and
+keying on a byte instead of a string took a cached UDP packet from 152 ns to 65 ns and an
+established TCP packet to 12 ns. The reply carries the numbers and the `nm` output, credits
+the two ideas taken from #174, and notes in passing that a cache without a TTL meets the
+UID 0 problem of [[G09]] on eviction.
+
+A useful reminder that a reviewer who disagrees is still the fastest way to find what a
+measurement would have told you anyway.
+
+Gotchas: [[G12]]
+Status: Working
+Next: rebuild the test APK from the new code, then the release
+
+## 2026-09-23 — submitted: three PRs, a comment on the issue, and the notes published
+
+Out of our hands now: amneziawg-go#199 (the filter), amneziawg-android#104 (the bridge),
+amnezia-client#3199 (the setting and the wiring), and a comment on issue #2457 that carries
+the four findings and links the PRs. The notes in this directory are published as
+`amnezia-tun0-fix/strict-split-tunneling-notes`, with the probes and the screenshots, and
+each PR links it.
+
+What the submission itself taught: neither `amneziawg-go` nor `amneziawg-android` runs CI on
+pull requests, so nothing red greets a reviewer, and in both repos only the maintainers' own
+PRs have been merged for months, with a dozen external ones open. The comment on the issue
+is therefore the part most likely to be read. The client repo does merge external work.
+
+Expect no quick answer. The code is complete and measured, the limits are stated, and the
+reasoning is public, which is what this stage could control.
+
+Status: Working · everything not submitted is listed there
+Next: nothing scheduled — an APK build for independent testing is possible if wanted
 
 ## 2026-09-23 — a second PR for the same issue exists, and it caught an ICMP hole in ours
 

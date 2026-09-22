@@ -19,6 +19,7 @@ it belongs to the shared environment store. See `_meta.md`.
 - **G09** · A socket the app has closed belongs to UID 0
 - **G10** · AmneziaWG has two containers, and a check for one misses the other
 - **G11** · Any app can ping through tun0, and ping has no owner to look up
+- **G12** · `time.Now()` costs more than the cache lookup it guards
 
 ## G01. `main-amnezia` looks like the current tun2socks branch and is a dead end
 
@@ -294,3 +295,29 @@ out with the filter on, answers with it off (`tools/icmp_probe.py`, `evidence/e6
 
 **How to spot it:** the leak probe tests TCP and UDP; run `icmp_probe.py` next to it. Any
 "pass what we cannot parse" branch in a filter meant to be fail-closed is this trap.
+
+## G12. `time.Now()` costs more than the cache lookup it guards
+
+**Context:** a reviewer of amneziawg-go#199 called the per-packet cost of the filter severe.
+Measuring it rather than arguing turned up something else.
+
+**Symptom:** the per-flow cache looked cheap — a map lookup on a small key — and measured
+114 ns per hit, while parsing the packet took 8.5 ns. The obvious suspects (the map, the
+mutex) were not the problem.
+
+**Cause:** `time.Now()` alone was 81 ns of those 114 (linux/amd64, i5-4210U). The cache
+read the clock on every lookup to check the entry's TTL, so the guard cost more than what
+it guarded. Go's clock is not free: it is a vDSO call, and on some hosts, WSL included,
+noticeably slower than on bare metal.
+
+**Fix:** read the clock once per 64 lookups and on every miss, and re-read it before
+dropping an entry that looks expired. An entry can then outlive its TTL by the time 64
+lookups take, which is microseconds under the load where it matters. Dropping the mutex
+(the cache belongs to the tun-read goroutine; `Set` swaps in a fresh one) and making the
+key's protocol a byte instead of a string took the hit from 114 ns to ~40 ns; the whole
+cached-UDP path went 152 → 65 ns per packet.
+
+**How to spot it:** any hot path that checks an expiry, a deadline or a rate limit per
+item. Benchmark `time.Now()` on its own first — it sets the floor for the whole check.
+
+**Portable:** yes — any Go hot path with a clock read per item
