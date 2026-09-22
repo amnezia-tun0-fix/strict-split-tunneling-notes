@@ -38,12 +38,9 @@ python dns_probe.py  <label> [vpn_server_ip]   # DNS through the system resolver
 
 ## The setting
 
-| | |
-|---|---|
-| ![switch off](screenshots/1-switch-off.jpg) | ![enable dialog](screenshots/2-enable-dialog.jpg) |
-| Off by default, under app split tunneling | Turning it on explains the trade-off |
-| ![switch on](screenshots/3-switch-on.jpg) | ![locked](screenshots/4-locked-while-connected.jpg) |
-| On | Locked while connected, like the rest of split tunneling |
+| <img src="screenshots/1-switch-off.jpg" width="200"> | <img src="screenshots/2-enable-dialog.jpg" width="200"> | <img src="screenshots/3-switch-on.jpg" width="200"> | <img src="screenshots/4-locked-while-connected.jpg" width="200"> |
+|---|---|---|---|
+| Off by default, under app split tunneling | Turning it on explains the trade-off | On | Locked while connected |
 
 ## License
 
