@@ -5,6 +5,7 @@ registers and is not restated here. `git log` in each fork has what changed line
 
 ## Index
 
+- **2026-09-23** — a signed test build published for anyone who wants to check the fix
 - **2026-09-23** — first review on #199: the hook now compiles out off Android, and is faster on it
 - **2026-09-23** — submitted: three PRs, a comment on the issue, and the notes published
 - **2026-09-23** — a second PR for the same issue exists, and it caught an ICMP hole in ours
@@ -20,6 +21,28 @@ registers and is not restated here. `git log` in each fork has what changed line
 - **2026-09-16** — rebased all four branches onto current upstream
 - **2026-07-26** — forks confirmed as the only surviving copy
 - **2026-07-01** — filter implemented on both datapaths
+
+## 2026-09-23 — a signed test build published for anyone who wants to check the fix
+
+The PRs cannot be tried by the people in the issue, so there is now a release in the client
+fork: `v5.0.3.1-strict.1`, built by the maintainer from `8bf9b552` and signed with a key
+generated for this, not the Android debug key — the debug key is public, and anything signed
+with it could be replaced by anyone.
+
+Two rounds were needed. The first build carried the old filter: the client was current, but
+the recipe pinned an `amneziawg-android` commit that pinned an older `amneziawg-go`. A chain
+of three repositories has to be bumped from the bottom up, and the artefact has to be checked
+for the change itself — here, the `tick` method that only the reworked cache has.
+
+The clean install then made its own point. The official app cannot be updated by a build with
+a different key, so it has to be removed first, and the first probe after restoring a backup
+measured nothing: the app list was empty, the guard never registered, and the probe's own
+traffic went through the tunnel. The lists are stored per route mode (`Conf/<mode>`), so an
+older backup restores the mode you used then, not the one you use now. The release notes say
+so. With the list back: 0/6 with strict on, ICMP timing out, 6/6 with it off.
+
+Status: Working
+Next: waiting — on the maintainers, and on anyone who tries the build
 
 ## 2026-09-23 — first review on #199: the hook now compiles out off Android, and is faster on it
 

@@ -38,6 +38,9 @@ State only — the reasons live in [architecture.md](architecture.md) and
   being released. Texts as sent are in `pr-drafts/`.
 - **Published notes:** `github.com/amnezia-tun0-fix/strict-split-tunneling-notes` — a copy of
   these documents, the probes and the screenshots, linked from the PRs.
+- **Test build** `v5.0.3.1-strict.1` in the `amnezia-client` fork's releases: tag on `8bf9b552`,
+  signed with the maintainer's own key (not the Android debug key), verified on the device
+  after a clean install — 0/6 on, 6/6 off. Linked from the issue comment and the notes.
 
 ## Fragile points
 
