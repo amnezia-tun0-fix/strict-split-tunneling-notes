@@ -10,7 +10,7 @@ This repository holds the reasoning, the traps found on the way and the probes u
 | amneziawg-android | [#104](https://github.com/amnezia-vpn/amneziawg-android/pull/104) | the JNI bridge that asks the Java side who owns a connection |
 | amnezia-client | [#3199](https://github.com/amnezia-vpn/amnezia-client/pull/3199) | the "Strict split tunneling" setting and the wiring |
 
-A test build of the three together, signed with my own key: [v5.0.3.1-strict.1](https://github.com/amnezia-tun0-fix/amnezia-client/releases/tag/v5.0.3.1-strict.1). It cannot be installed over the official app — the release notes say what to back up first.
+A test build of the three together, signed with my own key: [v5.0.3.1-strict.2](https://github.com/amnezia-tun0-fix/amnezia-client/releases/tag/v5.0.3.1-strict.2). It cannot be installed over the official app — the release notes say what to back up first.
 
 Not affiliated with Amnezia. These are one contributor's notes, published because a reviewer of those PRs may want the reasoning behind them.
 

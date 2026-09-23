@@ -38,7 +38,7 @@ history in [journal.md](journal.md).
   `8bf9b552`, signed with our own key, verified after a clean install — 0/6 on, 6/6 off.
 - **Cloned apps in include mode** work since `9ce688c4` (PR #3199: `9663133a`): the guard
   matches app ids, not uids ([[G13]]). Verified 2026-09-24 on XSpace clones of two browsers;
-  probe 0/6 on, 6/6 off. Not yet in a release: `v5.0.3.1-strict.2` is drafted.
+  probe 0/6 on, 6/6 off. Released as `v5.0.3.1-strict.2` (tag on `9ce688c4`).
 
 ## Fragile points
 
