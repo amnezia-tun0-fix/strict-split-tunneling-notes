@@ -6,9 +6,9 @@ This repository holds the reasoning, the traps found on the way and the probes u
 
 | Repo | PR | What it carries |
 |---|---|---|
-| amneziawg-go | #TBD | the `uidfilter` package and the hook in the tun read loop |
-| amneziawg-android | #TBD | the JNI bridge that asks the Java side who owns a connection |
-| amnezia-client | #TBD | the "Strict split tunneling" setting and the wiring |
+| amneziawg-go | [#199](https://github.com/amnezia-vpn/amneziawg-go/pull/199) | the `uidfilter` package and the hook in the tun read loop |
+| amneziawg-android | [#104](https://github.com/amnezia-vpn/amneziawg-android/pull/104) | the JNI bridge that asks the Java side who owns a connection |
+| amnezia-client | [#3199](https://github.com/amnezia-vpn/amnezia-client/pull/3199) | the "Strict split tunneling" setting and the wiring |
 
 A test build of the three together, signed with my own key: [v5.0.3.1-strict.1](https://github.com/amnezia-tun0-fix/amnezia-client/releases/tag/v5.0.3.1-strict.1). It cannot be installed over the official app — the release notes say what to back up first.
 
@@ -18,11 +18,12 @@ Not affiliated with Amnezia. These are one contributor's notes, published becaus
 
 - [docs/start.md](docs/start.md) — what to read for which question
 - [docs/architecture.md](docs/architecture.md) — the ten decisions, A01–A10: why the filter is in userspace, why Go asks and Kotlin decides, why an unresolved owner is denied
-- [docs/gotchas.md](docs/gotchas.md) — eleven traps that cost time, including the four worth knowing before writing this kind of filter:
+- [docs/gotchas.md](docs/gotchas.md) — thirteen traps that cost time, including the five worth knowing before writing this kind of filter:
   - **G11** any app can ping through `tun0`, and ICMP has no owner to look up
   - **G08** `getConnectionOwnerUid` answers `INVALID_UID` for any app your VPN does not cover, not only when no socket matches
   - **G09** a socket the app has closed belongs to UID 0, so re-judging a flow drops its FIN
   - **G03** `/proc/net/tcp` shows a process only its own sockets since Android 10
+  - **G13** a cloned app has a uid of its own, and one entry in the VPN's app list covers it
 - [docs/status.md](docs/status.md) — what works, what is fragile, what is deferred
 - [docs/journal.md](docs/journal.md) — how it went, newest first
 

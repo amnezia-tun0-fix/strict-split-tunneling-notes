@@ -1,6 +1,6 @@
 # Status
 
-**Updated:** 2026-09-23
+**Updated:** 2026-09-24
 
 State only — reasons in [architecture.md](architecture.md) and [gotchas.md](gotchas.md),
 history in [journal.md](journal.md).
@@ -36,6 +36,9 @@ history in [journal.md](journal.md).
   documents, the probes and the screenshots, linked from the PRs.
 - **Test build** `v5.0.3.1-strict.1` in the `amnezia-client` fork's releases: tag on
   `8bf9b552`, signed with our own key, verified after a clean install — 0/6 on, 6/6 off.
+- **Cloned apps in include mode** work since `9ce688c4` (PR #3199: `9663133a`): the guard
+  matches app ids, not uids ([[G13]]). Verified 2026-09-24 on XSpace clones of two browsers;
+  probe 0/6 on, 6/6 off. Not yet in a release: `v5.0.3.1-strict.2` is drafted.
 
 ## Fragile points
 
@@ -57,12 +60,7 @@ history in [journal.md](journal.md).
 
 ## Known issues
 
-- **Cloned apps are denied in include mode** (reported 2026-09-23, not fixed). Android gives
-  a listed package every copy's uid — dual app, second space, work profile: `dumpsys
-  connectivity` shows `{99910189, 99920189, 10189, 20189, ...}` for one app.
-  `StrictSplitTunnelGuard` builds its set from `getPackageUid(packageName, 0)`, the base uid
-  alone, so clones load nothing with the feature on and tunnel normally with it off. Likely
-  fix: compare app ids (`uid % 100000`), the platform's own rule. Affects #3199 and the build.
+None open.
 
 ## Blocked
 

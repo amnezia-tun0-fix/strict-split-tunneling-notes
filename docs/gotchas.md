@@ -20,6 +20,7 @@ it belongs to the shared environment store. See `_meta.md`.
 - **G10** · AmneziaWG has two containers, and a check for one misses the other
 - **G11** · Any app can ping through tun0, and ping has no owner to look up
 - **G12** · `time.Now()` costs more than the cache lookup it guards
+- **G13** · One entry in a VPN's app list covers every copy of the app, each with its own uid
 
 ## G01. `main-amnezia` looks like the current tun2socks branch and is a dead end
 
@@ -321,3 +322,33 @@ cached-UDP path went 152 → 65 ns per packet.
 item. Benchmark `time.Now()` on its own first — it sets the floor for the whole check.
 
 **Portable:** yes — any Go hot path with a clock read per item
+
+## G13. One entry in a VPN's app list covers every copy of the app, each with its own uid
+
+**Context:** the maintainer's own phone on the test build `v5.0.3.1-strict.1`, 2026-09-23:
+Brave and Chrome Beta listed in "only the apps from the list", both also cloned into MIUI's
+XSpace ("dual apps").
+
+**Symptom:** with strict mode on, the original browser loads pages and its clone cannot even
+resolve a name (`DNS_PROBE_STARTED`); with strict mode off, the clone works through the
+tunnel. The guard's log is silent: zero "owner unresolved" lines.
+
+**Cause:** Android applies a listed package to all its copies, and each copy runs under its
+own uid, `user * 100000 + appId`. The VPN's ranges in `dumpsys connectivity` for two listed
+apps with app ids 10382 and 10383: `99910382-99910383` (the XSpace clones, user 999),
+`20382-20383` and `99920382-99920383` (their SDK sandboxes, app id + 10000, Android 13+).
+So the platform routes the clone into the tunnel and `getConnectionOwnerUid` resolves it to
+`99910383`. The guard held the base uid from `getPackageUid(name, 0)` and compared
+whole uids, so it denied the clone — without a log line, because only unresolved owners
+were logged.
+
+**Fix:** compare app ids: `uid % 100000`, with the sandbox range 20000–29999 folded onto
+its app (`9ce688c4` in amnezia-client). `UserHandle.getAppId` would do the first part but
+is hidden API, and `Process.getAppUidForSdkSandboxUid` is public only from API 35, so the
+guard carries the AOSP constants. Denials by the list are logged now, with the uid.
+
+**How to spot it:** a listed app works and its clone, second-space or work-profile copy
+does not. `adb shell pm list packages -U` prints every uid a package has
+(`com.chrome.beta uid:10383,99910383`); compare them with the VPN's ranges.
+
+**Portable:** yes — any per-app policy on Android that compares uids instead of app ids

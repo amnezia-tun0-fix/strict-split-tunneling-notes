@@ -5,6 +5,7 @@ registers and is not restated here. `git log` in each fork has what changed line
 
 ## Index
 
+- **2026-09-24** — cloned apps were blocked in include mode: the guard compared uids
 - **2026-09-23** — a signed test build published for anyone who wants to check the fix
 - **2026-09-23** — first review on #199: the hook now compiles out off Android, and is faster on it
 - **2026-09-23** — submitted: three PRs, a comment on the issue, and the notes published
@@ -21,6 +22,30 @@ registers and is not restated here. `git log` in each fork has what changed line
 - **2026-09-16** — rebased all four branches onto current upstream
 - **2026-07-26** — forks confirmed as the only surviving copy
 - **2026-07-01** — filter implemented on both datapaths
+
+## 2026-09-24 — cloned apps were blocked in include mode: the guard compared uids
+
+The maintainer found it on their own phone a day after the test build went out: a browser
+listed in "only the apps from the list" worked, its XSpace clone loaded nothing, and only
+with the switch on. The guard's log was silent, which was itself the clue — every deny it
+logged was for an unresolved owner, and the clone's owner resolved fine.
+
+`dumpsys connectivity` showed why: the VPN's ranges held each listed app four times — the
+original, the clone in user 999, and the SDK sandbox of each. The platform routes all of
+them into the tunnel; the guard knew only the uid `getPackageUid` returns and denied the
+rest ([[G13]]). Matching app ids instead fixed it (`9ce688c4`). `UserHandle.getAppId` is
+hidden API, so the guard carries the AOSP constants, and it now logs denials by the list as
+well, so the next mismatch of this kind shows up in logcat.
+
+Verified by building the local commit before pushing it — `build_release.sh --local` takes
+the commit from the Windows checkout instead of GitHub. With the build: both clones load
+pages, the probe from an unlisted app gives 0/6 with strict on and 6/6 with it off, ICMP
+through `tun0` times out and answers respectively. Exclude mode was not re-run: an excluded
+app's copies are outside the VPN, so they resolve to `INVALID_UID` and never reach the
+changed comparison. The PR branch took the fix as a fourth commit, not a force-push.
+
+Status: Working
+Next: `v5.0.3.1-strict.2` release, on the maintainer's go-ahead
 
 ## 2026-09-23 — a signed test build published for anyone who wants to check the fix
 
