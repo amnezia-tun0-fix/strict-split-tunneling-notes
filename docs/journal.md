@@ -45,7 +45,8 @@ app's copies are outside the VPN, so they resolve to `INVALID_UID` and never rea
 changed comparison. The PR branch took the fix as a fourth commit, not a force-push.
 
 Status: Working
-Released the same day as `v5.0.3.1-strict.2`, from the verified APK.
+Released the same day as `v5.0.3.1-strict.2`, from the verified APK. A new comment on #2457
+announces it, and the first comment now links strict.2 instead of strict.1.
 
 Next: waiting — on the maintainers, and on anyone who tries the build
 
