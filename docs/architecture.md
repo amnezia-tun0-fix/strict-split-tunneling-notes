@@ -39,6 +39,17 @@ The app then learns the VPN server's IP. The client cannot tighten the OS rules 
 inside the app, so if the bypass is to be closed at all, it has to be closed in the code
 that reads the tun device.
 
+Android does try to stop it, and the kernel undoes that. `ip rule` on a phone has
+`oif tun0 uidrange <VPN uids> lookup <vpn table>` for the VPN's own uids and nothing for
+the rest. For any other uid `fib_lookup` fails, and `ip_route_output_key_hash_rcu` then
+assumes the destination is on-link because the socket named an output interface, and
+sends anyway. `ip route get <ip> oif tun0 uid 2000` shows `dev tun0` with no table.
+A VPN app can change neither the rules nor the kernel, and the packets look the same
+either way: same source address, no mark. (Explained by @izhddm in the review of
+amneziawg-go#199.) This is the IPv4 output path. Per the same reviewer, the IPv6 path in
+kernel 6.1 has no such fallback. Neither they nor we have tested IPv6: our tunnel had no
+IPv6 address, and every probe through `tun0` failed with "Network is unreachable".
+
 **Alternatives:** *Rely on `VpnService.addDisallowedApplication`* — that is precisely the
 mechanism being bypassed. *Block at the socket layer* — an app cannot touch another
 app's sockets. *iptables / netfilter rules* — needs root, which puts it outside the
@@ -77,9 +88,13 @@ performance detail but a hole.
 **Decision:** Go owns the *mechanism* and nothing else. Each datapath exposes a small
 `PacketFilter`-shaped interface with a single `Allow(network, srcIP, srcPort, dstIP,
 dstPort) bool`, defaulting to nil — meaning allow everything. The *policy* —
-resolving the owner, applying include/exclude, caching — lives in Kotlin's
-`StrictSplitTunnelGuard` (`amnezia-client/client/android/utils/.../net/`). The call is
-synchronous: the first packet of a flow waits for the verdict.
+resolving the owner and applying include/exclude — lives in Kotlin's
+`StrictSplitTunnelGuard` (`amnezia-client/client/android/utils/.../net/`). No packet of a
+flow leaves before its verdict. On the Xray path the forwarder simply waits for the call.
+On the AmneziaWG path the call runs on a worker, and the flow's first packets are
+copied and held until the answer arrives. That makes it asynchronous for the tun reader
+but not for the flow ([[G15]]). What stays rejected is passing packets while the answer
+is in flight, not answering off the reader.
 
 **Consequences:** one contract, expressed through two different bridges — gomobile for
 the Xray path (generated, typed) and hand-written cgo + JNI for AmneziaWG ([[A09]]).
@@ -106,9 +121,16 @@ flaky.
 **Decision:** deny. The reasoning that makes this safe: a packet reaching the tun with no
 owning socket requires a raw socket, which requires `CAP_NET_RAW`, which requires root —
 and a rooted device defeats any userspace control anyway, so it is out of scope. A
-non-root app's traffic always has an owning socket, so a legitimate flow resolves. To
-absorb the rare timing race, the guard keeps a short positive cache and re-queries once
-before denying.
+non-root app's traffic always has an owning socket, so a legitimate flow resolves. There
+is no retry. The guard used to re-query once before denying, to absorb a race that was
+never observed. [[G08]] showed that `INVALID_UID` is the platform's deliberate answer for
+an owner outside the VPN. For an owner that cannot be found at all, the retry ran the
+platform's most expensive lookup twice ([[G15]]). It was removed on 2026-09-25.
+
+The same fail-closed rule covers overload. On the AmneziaWG path, when 256 flows are
+already waiting for a verdict, packets of a new flow are dropped without asking, and
+that drop is not cached ([[G15]]). It also covers a datagram whose socket was closed
+before its owner was looked up, even from an allowed app ([[G16]]).
 
 The same rule covers packets that carry no owner at all. While the filter is installed, the
 AmneziaWG hook drops what it cannot attribute — non-TCP/UDP protocols, IPv4 fragments, IPv6
@@ -129,21 +151,34 @@ look like "the VPN randomly drops connections" — hence invariant 3 in
 system server. How often that happens depends on the datapath, and the two differ.
 
 **Decision:** put the cache where the crossing would otherwise be frequent.
-*Xray path:* the gVisor forwarder already fires once per connection, so the Go side stays
-stateless and the cache lives in Kotlin's guard, keyed by `network/srcIp/srcPort`.
-*AmneziaWG path:* the hook is per **packet**, so a bare call would cross the bridge for
-every packet of every flow. The Go package `amneziawg-go/uidfilter` therefore caches the
-verdict itself, keyed by protocol + source address + source port, TTL 10s, capped at 4096
-entries, and only calls the bridge on a miss. For TCP it judges only packets with SYN set,
-which makes it one decision per connection like the Xray path: a connection whose SYN was
-denied never exists, so every later packet belongs to an allowed one. Judging later
-packets was wrong, not just wasteful — see [[G09]].
+*Xray path:* the gVisor forwarder already fires once per connection, so it needs no cache
+at all. *AmneziaWG path:* the hook is per **packet**, so a bare call would cross the
+bridge for every packet of every flow. For TCP the Go package `amneziawg-go/uidfilter`
+judges only packets with SYN set, which makes it one decision per connection like the
+Xray path: a connection whose SYN was denied never exists, so every later packet belongs
+to an allowed one. Judging later packets was wrong, not just wasteful — see [[G09]].
+Every SYN is judged and none is cached. For UDP it caches the verdict per **full
+5-tuple**, TTL 10 s on a coarse clock ([[G12]]), capped at 4096 entries, and asks only
+on a miss.
 
-**Consequences:** the expensive lookup happens about once per flow in both paths. Two
-caches exist and that is deliberate, not duplication — they sit on opposite sides of the
-bridge and solve different problems. The AWG cache means a policy change mid-session is
-honoured only after the TTL expires, which is acceptable because the toggle is read at
-tunnel start and a change implies a reconnect.
+The cache and the flows waiting for a verdict belong to one device: a `uidfilter.Gate` in
+`Device.tun`, owned by that device's tun reader and not locked. The filter, its workers
+and the clock are process-wide, in a `holder`. A gate that sees a new holder starts
+afresh, so `Set` changes the filter and invalidates every cache in one atomic store.
+
+**Revised 2026-09-25**, after two reviews of amneziawg-go#199 by @izhddm. Both caches were
+keyed on the source alone, and a verdict outlived its socket. A full 5-tuple narrows that
+but does not close it, which is why TCP is no longer cached at all ([[G14]]). The cache
+was also process-global, which assumed one tun reader per process. Kotlin's guard used
+to keep a second cache, and now keeps no state.
+
+**Consequences:** the expensive lookup happens about once per TCP connection and about
+once per UDP flow per 10 s, and there is one cache, on the side of the bridge where the
+packets are. What remains is a UDP window of at most the TTL: a socket that takes over a
+5-tuple just closed by an allowed app inherits its verdict. That needs the same source
+port and the same destination, and it is stated, not hidden ([[G14]]). A policy change
+takes effect on the next packet, because the toggle is read at tunnel start and `Set`
+replaces every gate's state.
 
 ## A05. The toggle mirrors killSwitch and is off by default
 
@@ -235,7 +270,7 @@ The AmneziaWG path follows the same pattern one level deeper. `amneziawg-android
 `recipes/awg-android` clones the `amneziawg-android` fork and checks out a pinned commit,
 under version `3.1.20260814-strict.N`. This recipe fetches with `git clone`, not an archive,
 so there is no `sha256` to recompute. After a push to the fork `_commit` changes, and the
-`strict.N` suffix goes up with it here and in the root `conanfile.py` (now `strict.3`).
+`strict.N` suffix goes up with it here and in the root `conanfile.py` (now `strict.5`).
 
 ## A08. Test builds go through the stock `--sign` path, signed with the Android debug key
 
@@ -264,12 +299,12 @@ not a change to any file.
 
 ## A09. The AmneziaWG bridge is a hand-written JNI upcall on the Go thread
 
-**Context:** [[A02]] needs the AmneziaWG datapath to ask Kotlin, synchronously, who owns a
-new flow. Unlike the Xray side there is no gomobile here: `libwg-go.so` is a cgo
+**Context:** [[A02]] needs the AmneziaWG datapath to ask Kotlin who owns a new flow, and
+to get the answer before any packet of that flow leaves. Unlike the Xray side there is no gomobile here: `libwg-go.so` is a cgo
 `c-shared` library, its JNI entry points are written by hand in
 `amneziawg-android/tunnel/tools/libwg-go/jni.c`, and `amnezia-client` keeps its own Kotlin
-copy of the `GoBackend` declarations. The question arrives in the TUN read loop, on a Go
-thread the JVM has never seen.
+copy of the `GoBackend` declarations. The question arrives from one of `uidfilter`'s
+worker goroutines ([[G15]]), on a Go thread the JVM has never seen.
 
 **Alternatives:** *Push a UID set down to Go* — Go still cannot map a packet to a UID
 ([[G03]]). *Answer asynchronously from a Java thread polling a queue* — the race [[A02]]
@@ -285,9 +320,14 @@ thread, it takes a global reference to the object and resolves `allow` through
 `GetObjectClass`, so the interface's class name does not matter to C. In the upcall the Go
 thread is attached once, as a daemon, and a `pthread_key` destructor detaches it when the
 thread exits. Every call runs inside `PushLocalFrame`/`PopLocalFrame`, since a thread that
-never returns to Java never frees its local references. A mutex guards the reference
-against a concurrent unregister. There is a single TUN reader, so the mutex costs nothing.
-No reference, a failed attach, or a Java exception means deny ([[A03]]). Kotlin passes a
+never returns to Java never frees its local references. A mutex guards the registration
+only. Under it the upcall takes a local reference to the filter, then calls Java without
+the lock, so the four workers can wait on the platform at the same time. Until
+2026-09-25 the lock was held across the call and serialized every lookup. Each worker is
+pinned to its OS thread (`runtime.LockOSThread`), so exactly four threads get attached.
+When `Set` replaces the filter, the workers exit, their threads exit with them, and the
+pthread key detaches them. No reference, a failed attach, or a Java exception means deny
+([[A03]]). Kotlin passes a
 `fun interface UidFilter` whose ports are `Int`, because JNI here is written by hand and
 takes `int`. [[G02]]'s `Long` belongs to gomobile only.
 

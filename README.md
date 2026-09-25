@@ -18,7 +18,7 @@ Not affiliated with Amnezia. These are one contributor's notes, published becaus
 
 - [docs/start.md](docs/start.md) — what to read for which question
 - [docs/architecture.md](docs/architecture.md) — the ten decisions, A01–A10: why the filter is in userspace, why Go asks and Kotlin decides, why an unresolved owner is denied
-- [docs/gotchas.md](docs/gotchas.md) — thirteen traps that cost time, including the five worth knowing before writing this kind of filter:
+- [docs/gotchas.md](docs/gotchas.md) — sixteen traps that cost time, including the five worth knowing before writing this kind of filter:
   - **G11** any app can ping through `tun0`, and ICMP has no owner to look up
   - **G08** `getConnectionOwnerUid` answers `INVALID_UID` for any app your VPN does not cover, not only when no socket matches
   - **G09** a socket the app has closed belongs to UID 0, so re-judging a flow drops its FIN
@@ -38,6 +38,8 @@ python dns_probe.py  <label> [vpn_server_ip]   # DNS through the system resolver
 ```
 
 `leak_probe.py` reports `LEAK(SERVER_IP)` when a bypass attempt reaches the far side from the VPN server's address. On the build with the fix, strict mode on gives 0 of 6 and ICMP times out; with it off, 6 of 6 and ping answers.
+
+`tools/churn_probe` is a Go program for load: TCP connect latency through the tunnel while another process opens new UDP flows at a fixed rate, with the sockets held open or closed at once, and a mode that counts answered DNS queries from fresh sockets. Build it with `GOOS=android GOARCH=arm64 CGO_ENABLED=0 go build`, push it to `/data/local/tmp` and run it from `adb shell`; the usage is at the top of `main.go`. The numbers it produced are in [amneziawg-go#199](https://github.com/amnezia-vpn/amneziawg-go/pull/199) and in [G15](docs/gotchas.md).
 
 ## The setting
 

@@ -59,8 +59,9 @@ see [method-delta.md](method-delta.md) for why.
 2. **Go cannot know who owns a packet.** Only Android can name the owning UID, and only
    for the app that is the active `VpnService`; `/proc/net/tcp` has been blind since
    Android 10 ([[G03]]). Everything structural follows from this: Go asks, Kotlin decides,
-   and the call is synchronous because an asynchronous answer would leak during the race
-   ([[A02]]).
+   and no packet of a flow leaves before the answer. On AmneziaWG the answer comes from
+   workers while the flow's first packets are held, because asking on the tun reader
+   let any app stall the tunnel ([[A02]], [[G15]]).
 3. **A disabled filter must be indistinguishable from no filter.** Off means no filter is
    registered at all — nothing parsed, nothing allocated. That is the argument for
    merging this upstream, so a change that makes the disabled path cost something does

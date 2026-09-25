@@ -21,6 +21,9 @@ it belongs to the shared environment store. See `_meta.md`.
 - **G11** · Any app can ping through tun0, and ping has no owner to look up
 - **G12** · `time.Now()` costs more than the cache lookup it guards
 - **G13** · One entry in a VPN's app list covers every copy of the app, each with its own uid
+- **G14** · A flow key outlives the socket it was made for
+- **G15** · A lookup on the tun reader lets any app stall the whole tunnel
+- **G16** · A datagram sent from a socket closed at once is dropped, even from an allowed app
 
 ## G01. `main-amnezia` looks like the current tun2socks branch and is a dead end
 
@@ -311,15 +314,18 @@ read the clock on every lookup to check the entry's TTL, so the guard cost more 
 it guarded. Go's clock is not free: it is a vDSO call, and on some hosts, WSL included,
 noticeably slower than on bare metal.
 
-**Fix:** read the clock once per 64 lookups and on every miss, and re-read it before
-dropping an entry that looks expired. An entry can then outlive its TTL by the time 64
-lookups take, which is microseconds under the load where it matters. Dropping the mutex
-(the cache belongs to the tun-read goroutine; `Set` swaps in a fresh one) and making the
-key's protocol a byte instead of a string took the hit from 114 ns to ~40 ns; the whole
-cached-UDP path went 152 → 65 ns per packet.
+**Fix:** do not read the clock per item; read a coarse clock that something else keeps
+current. The first fix read the clock once per 64 lookups and was wrong: nothing advanced
+it while the tunnel was idle, so after a pause longer than the TTL an expired verdict was
+honoured for up to 63 more packets (found by @izhddm, 2026-09-25). Since `cdee4ba` the
+filter's holder runs a ticker that advances an `atomic.Int64` once a second, monotonic and
+forward only, and a lookup costs one atomic load. The TTL is off by at most a second.
+Dropping the mutex and making the key's protocol a byte took the cached-UDP path from 152
+to 65 ns per packet, and the ticker keeps it at about 62 ns.
 
 **How to spot it:** any hot path that checks an expiry, a deadline or a rate limit per
-item. Benchmark `time.Now()` on its own first — it sets the floor for the whole check.
+item. Benchmark `time.Now()` on its own first, since it sets the floor for the whole check.
+And if the clock is refreshed by the work itself, ask what it reads after a long pause.
 
 **Portable:** yes — any Go hot path with a clock read per item
 
@@ -352,3 +358,106 @@ does not. `adb shell pm list packages -U` prints every uid a package has
 (`com.chrome.beta uid:10383,99910383`); compare them with the VPN's ranges.
 
 **Portable:** yes — any per-app policy on Android that compares uids instead of app ids
+
+## G14. A flow key outlives the socket it was made for
+
+**Context:** the review of amneziawg-go#199 by @izhddm, 2026-09-25, with a test written
+against our branch, and their follow-up the same day.
+
+**Symptom:** after an allowed UDP flow from port 40000, a packet from port 40000 to a
+destination the filter would deny passes without the filter being asked. A SYN on a
+reused port does the same. The reverse also happens: an allowed app that gets a port an
+excluded app has just used sees its packets dropped for up to 10 s.
+
+**Cause:** both caches, Go's verdict cache and the Kotlin guard's uid cache, were keyed
+on protocol, source address and source port, with a 10 s TTL. A source port identifies a
+socket only while that socket lives. Once the socket closes, the kernel hands the port to
+the next socket, which may belong to another app. By accident this is rare, since
+ephemeral ports are random, but an app can `bind()` a port on purpose. A full 5-tuple
+narrows this and does not close it: a new socket can take over the same 5-tuple once the
+old one is closed. Any positive cache with a TTL is a window of stale authorisation.
+
+**Fix:** key on the full 5-tuple, and do not cache TCP at all. Every SYN is judged
+afresh, and since TCP is judged only on SYN, that costs one lookup per connection, as
+before (`cdee4ba`). UDP verdicts stay cached per 5-tuple for 10 s. Taking over a UDP flow
+within that window needs the same source port *and* the same destination, right after
+an allowed app has closed that very flow. The Kotlin cache is gone (amnezia-client
+`37a34134`).
+
+**How to spot it:** any per-flow cache keyed on less than the flow. Ask what happens
+when the missing part of the key changes while the rest stays, and what a new owner of
+the same key inherits.
+
+**Portable:** yes — any cache of per-connection facts keyed by local port
+
+## G15. A lookup on the tun reader lets any app stall the whole tunnel
+
+**Context:** the same review, measured on a Galaxy S24 FE, Android 16, over AmneziaWG 2,
+and re-measured on our Poco F7 (Android 16, kernel 6.6) with `tools/churn_probe`.
+
+**Symptom:** TCP connects through the tunnel slow down while another process opens new
+UDP flows. The reviewer's corrected numbers: with sockets held open, so that every owner
+resolves and every flow is allowed, 300/s costs nothing visible and 1000/s gives a p50 of
+328 ms against 106 ms. With sockets closed right after sending, so that owners are mostly
+not found, 300/s already gives a p50 of 263 ms, and at 1000/s 3 of 40 connects time out.
+On ours with `strict.2`, 1000 flows/s gave a p50 of 471 ms (max 1.9 s) with sockets held,
+and 1085 ms (max 4.3 s, 2 of 40 failed) with sockets closed.
+
+**Cause:** `AllowOutboundPacket` asked the filter synchronously on the goroutine that
+reads tun, so every cache miss stopped reading for everyone. The cost behind a miss
+depends on the answer. `InetDiagMessage.getConnectionOwnerUid` opens a netlink socket
+per call and tries AF_INET6 before AF_INET. An owner outside the VPN is found by exact
+match and then hidden as `INVALID_UID` ([[G08]]), which costs two cheap requests. An
+owner that is **not found**, for instance because the socket was closed right after
+sending, adds two `NLM_F_DUMP` requests that walk the whole UDP table. The guard's retry
+on `INVALID_UID` then ran all of it twice. An app can pick that path on purpose just by
+closing its socket after `sendto`. The JNI lock held across the call would have
+serialized any pool as well. (The first review called a denied flow the expensive case,
+and the follow-up corrected it.)
+
+**Fix:** the tun reader never calls the filter now. On a miss it copies the packet into a
+per-flow pending list, hands the key to 4 workers and returns to reading. The limits per
+device: 4 packets per flow, 1 MiB, 256 flows, and 2 s at most per packet. The verdict
+releases or drops what was held, in order, through `Device.ReleaseOutboundPacket`.
+Holding matters more than dropping: a dropped first packet costs every new TCP connection
+a 1 s SYN retransmit and every DNS query a retry. With the table full, new flows are
+dropped and not cached; flows already allowed never are. The JNI lock covers only the
+registration, and the retry is gone ([[A03]]). Measured afterwards on the same phone: a
+p50 of about 200 ms at every rate up to 5000 flows/s, sockets held or closed, the same as
+with the filter off. DNS queries from fresh sockets were answered at the same rate with
+and without the filter.
+
+**How to spot it:** any slow call on the path that reads packets. Measure the latency of
+other flows while new ones are churning, not only the cost of the call, and make the
+churn hit the slowest answer as well as the common one.
+
+**Portable:** yes — any packet loop that makes a blocking call per new flow
+
+## G16. A datagram sent from a socket closed at once is dropped, even from an allowed app
+
+**Context:** the follow-up review of amneziawg-go#199, 2026-09-25: counting the guard's
+deny lines during a flood from an app **inside** the VPN.
+
+**Symptom:** at 300 flows/s, 6870 of 7501 flows were denied as "owner unresolved",
+although the sending app was allowed. `churn_probe flows` without `-hold` shows the same
+on ours: about 6000 denies per run at 300/s, and none with `-hold 2s`.
+
+**Cause:** the owner is looked up after the packet has been read from tun, and by then a
+fire-and-forget sender may already have closed its socket. The platform can name only
+the owner of a socket that exists, so the answer is `INVALID_UID`, and [[A03]] denies
+it. Judging off the reader ([[G15]]) lengthens the gap under load but did not create it:
+the synchronous design had the same gap.
+
+**Fix:** none, by design. Allowing unresolved owners is exactly the bypass ([[A03]]).
+Such a datagram is dropped, and the hold limit of 2 s bounds how long any packet waits.
+Senders that expect an answer keep the socket open until it arrives, so they are not
+affected: DNS, STUN, QUIC and the like.
+
+**How to spot it:** "owner unresolved" denies for an app that is allowed, on UDP, in
+bursts. Check whether the app closes its socket right after sending. The TCP form is a
+single denied SYN with no retransmit behind it. A browser opens connections ahead of time
+and cancels some at once, and a few of those show up during ordinary browsing in include
+mode (3 in two minutes on 2026-09-25). A real bypass attempt retransmits and is denied
+again every second.
+
+**Portable:** no

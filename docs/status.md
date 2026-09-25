@@ -1,6 +1,6 @@
 # Status
 
-**Updated:** 2026-09-24
+**Updated:** 2026-09-25
 
 State only — reasons in [architecture.md](architecture.md) and [gotchas.md](gotchas.md),
 history in [journal.md](journal.md).
@@ -15,8 +15,22 @@ history in [journal.md](journal.md).
   Private DNS by hostname ([[A10]]). TCP is judged on SYN only since `a5218b5` ([[G09]]);
   unattributable packets (ICMP, fragments) are dropped since `90ec7a8` ([[G11]]). With the
   feature off the bridge is not called at all since `a6e305e5`, and since `6b20943` the hook
-  is compiled out off Android and costs 12 ns per TCP packet, 65 ns per cached UDP one
+  is compiled out off Android and costs 14 ns per TCP packet, 62 ns per cached UDP one
   ([[G12]]).
+- **Two review rounds on #199 (@izhddm), verified on the device 2026-09-25.** Changes:
+  - new flows are judged by 4 workers while their first packets are held, not on the tun
+    reader ([[G15]]);
+  - every TCP SYN is judged afresh, and UDP verdicts are cached per 5-tuple ([[G14]]);
+  - the clock is a ticker, not a lookup counter ([[G12]]);
+  - state is per device, and `Set` swaps it in one step;
+  - the JNI lock no longer spans the call, and the guard lost its cache and its retry.
+
+  Measured with `tools/churn_probe`: at up to 5000 new flows/s, TCP connects kept a p50 of
+  about 200 ms, as with the filter off; `strict.2` reached 1.1 s at 1000/s. Leak probes
+  from an excluded app: 0/6 on, 6/6 off, ICMP via `tun0` timed out and answered
+  respectively; in include mode 0/6 with strict on, and browsing worked. No JNI errors. Pushed on the working branches (`cdee4ba`, `38e28430`,
+  `cec802df`, recipe `strict.5`); the PR branches carry the same commits locally
+  (`5864fd3`, `94c30d75`, `4d00910f`) and are not pushed.
 - **Xray path, built but not run.** `filter` in `amnezia-tun2socks`, `RegisterUidFilter` in
   `amnezia-libxray`, registration in `Xray.kt`. Go tests pass.
 - **Kotlin and settings** (`amnezia-client`): `StrictSplitTunnelGuard.createOrNull` is shared
@@ -24,7 +38,7 @@ history in [journal.md](journal.md).
   the split-tunnelling drawer and Settings → Connection, enabled only for AmneziaWG/WireGuard
   and while disconnected ([[A05]]).
 - **Build pipeline.** Recipes build `amnezia-libxray` (`1.0.3-strict.1`) and `awg-android`
-  (`3.1.20260814-strict.4`) from our forks, pinned by commit ([[A07]]); `deploy/build.sh`
+  (`3.1.20260814-strict.5`) from our forks, pinned by commit ([[A07]]); `deploy/build.sh`
   under WSL signs with the debug key ([[A08]]). Check the artefact, not the log.
 - **Working branches** `feat/strict-tunnel-isolation` in all five forks build the APK;
   `amnezia-client` rebased onto `dev` 2026-09-23. `amneziawg-android` stays on
@@ -52,6 +66,10 @@ history in [journal.md](journal.md).
   See [[G05]].
 - **The two Go↔Kotlin contracts differ**: gomobile gives `Long` ports and lower-cased names
   ([[G02]]), the hand-written JNI takes `Int` and a fixed method signature ([[A09]]).
+- **Held packets are sent from a worker goroutine**, through
+  `Device.ReleaseOutboundPacket`, not from the tun reader. It mirrors the reader's peer
+  lookup and staging; a change to that part of `RoutineReadFromTUN` upstream has to be
+  mirrored there. See [[G15]].
 - **"owner uid unresolved" in the guard's log** is usually not a failed lookup: Android
   returns `INVALID_UID` for any owner our VPN does not apply to (AOSP source). See [[G08]].
 - **`awgVersion()` reports `v3.1.20260814`** in the fork build although the linked code is

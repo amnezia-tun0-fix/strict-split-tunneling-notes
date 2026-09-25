@@ -5,6 +5,7 @@ registers and is not restated here. `git log` in each fork has what changed line
 
 ## Index
 
+- **2026-09-25** — a second review: the lookup leaves the tun reader, measured on the phone
 - **2026-09-24** — cloned apps were blocked in include mode: the guard compared uids
 - **2026-09-23** — a signed test build published for anyone who wants to check the fix
 - **2026-09-23** — first review on #199: the hook now compiles out off Android, and is faster on it
@@ -22,6 +23,59 @@ registers and is not restated here. `git log` in each fork has what changed line
 - **2026-09-16** — rebased all four branches onto current upstream
 - **2026-07-26** — forks confirmed as the only surviving copy
 - **2026-07-01** — filter implemented on both datapaths
+
+## 2026-09-25 — a second review: the lookup leaves the tun reader, measured on the phone
+
+@izhddm built the whole series on a Galaxy S24 FE, confirmed that the bypass is closed for
+TCP, connected UDP and unconnected UDP, and then found what the first review did not.
+Their mechanism of the leak, the kernel's on-link fallback when `fib_lookup` fails for a
+socket with an output interface, now sits in [[A01]].
+
+They made three points, and each one held against the code. The owner lookup ran on the
+tun reader, so churn in new flows slowed every flow, and an app outside the VPN could
+stall the tunnel on purpose ([[G15]]). The cache key left out the destination, so a
+verdict outlived its socket ([[G14]]). `Set` stored the filter and the cache in two steps.
+Their measurements were taken as enough to act on without reproducing them first, and
+that turned out to be half right (below).
+
+The fix follows their suggestion closely: hold, don't drop, and don't pass. Holding costs
+a copy per packet on a miss, and dropping would cost every new TCP connection a 1 s SYN
+retransmit. What took thought was keeping the cache lock-free. The workers never touch
+it. They mark a pending flow as decided, and the reader moves decided verdicts into its
+own cache on its next miss. A flow's held packets leave before the reader can see its
+verdict, so order within the flow survives. Building the key from the raw address bytes,
+with the length in the key, made the longer key cheaper than the old one.
+
+The same review removed the guard's retry on `INVALID_UID` ([[A03]]). It was insurance
+against a race that [[G08]] had already explained away, and it doubled the cost of
+exactly the flows an attacker sends.
+
+Later the same day, before anything was pushed, the reviewer corrected themselves. Their
+flood had closed each socket right after sending, so it mostly measured owners that could
+not be found, the platform's most expensive answer, and not allowed traffic. Their
+follow-up also found three things we had built on. The clock trick of [[G12]] went stale
+when the tunnel was idle. A full 5-tuple can be reused too ([[G14]]). The cache assumed
+one tun reader per process. The code had not reached a device yet, so the second commit
+(`cdee4ba`) went on top of the first: a ticker clock, every SYN judged afresh, per-device
+state, byte and time limits on holding, and a lock that stops a verdict from being sent
+after its filter was replaced. Holding also has a cost that cannot be designed away. A
+datagram whose socket is closed before the lookup is dropped, even from an allowed app
+([[G16]]).
+
+The phone then settled what the numbers were worth. `churn_probe` gained `-hold`, to
+reproduce both of their scenarios, and a `dns` mode that counts answered new flows,
+because the connect latency alone cannot show silent drops. At 1000 new flows/s,
+`strict.2` gave a p50 of 471 ms with sockets held, and 1.1 s with 2 of 40 connects failed
+with sockets closed. The new build held about 200 ms at every rate up to 5000/s, as with
+the filter off. In include mode the probe gave 0/6 too, and two minutes of browsing
+produced three denials, each a single SYN with no retransmit. Those were connections the
+browser cancelled before the lookup ([[G16]]). DNS lost 6–13% at high rates with and without the filter alike, so that
+loss is the path, not the filter. Leak probes from the excluded app gave 0/6 with the
+switch on and 6/6 with it off.
+
+Gotchas: [[G12]], [[G14]], [[G15]], [[G16]]
+Status: Working · verified on the device, working branches pushed
+Next: after a yes, push the PR branches, update the three PR texts, reply to @izhddm
 
 ## 2026-09-24 — cloned apps were blocked in include mode: the guard compared uids
 

@@ -45,12 +45,12 @@ This directory is an umbrella. The five folders below are clones of forks under
 AmneziaVPN_repos/
 ├── ai_docs/              these documents
 ├── ai_docs_method/       how this project departs from the standard (D1)  → docs/method-delta.md
-├── tools/                linter config
+├── tools/                linter config and the on-device probes
 ├── amnezia-client/       Kotlin service layer + C++/QML client and the toggle
 ├── amnezia-libxray/      gomobile bridge: exposes the filter to Android
 ├── amnezia-tun2socks/    Xray datapath — filter hook in the gVisor forwarders
 ├── amneziawg-go/         AmneziaWG datapath — filter hook in the TUN read loop
-└── amneziawg-android/    JNI bridge for AmneziaWG — no changes yet
+└── amneziawg-android/    JNI bridge for AmneziaWG
 ```
 
 Every fork carries the same branch name, `feat/strict-tunnel-isolation`, plus a local
@@ -62,15 +62,16 @@ Every fork carries the same branch name, `feat/strict-tunnel-isolation`, plus a 
         app socket                    ┌──────────── Kotlin ────────────┐
             │                         │ StrictSplitTunnelGuard         │
             ▼                         │  getConnectionOwnerUid (API29+)│
-      Android tun fd                  │  + split-tunnel policy + cache │
+      Android tun fd                  │  + split-tunnel policy         │
             │                         └───────▲────────────────────────┘
    ┌────────┴────────┐                        │ allow(5-tuple) -> bool
    │                 │                        │
    ▼                 ▼                 ┌──────┴──────┐
 tun2socks        amneziawg-go          │   bridge    │
 (Xray path)      (AmneziaWG path)      │ gomobile /  │
-per-connection   per-packet, cached    │ cgo + JNI   │
-   │                 │                 └─────────────┘
+per-connection   per-packet, cached,   │ cgo + JNI   │
+   │             judged off the reader └─────────────┘
+   │                 │
    ▼                 ▼
  SOCKS5 → xray    crypto → UDP
 ```
@@ -80,12 +81,8 @@ is why the filter had to be added twice — see [[A01]].
 
 ## Current state
 
-- ✓ Go filters in both datapaths — built, tested, rebased onto current upstream
-- ✓ Kotlin resolver and the C++/QML toggle — written, compile against a rebuilt `.aar`
-- ⚠ Building the shipped app needs a patched conan recipe that does not exist yet
-- ✗ AmneziaWG JNI bridge, on-device verification, PR to upstream
-
-Detail in [status.md](status.md).
+The AmneziaWG path is verified on a device and submitted upstream as three PRs; the Xray
+path is built but cannot be run from here. Detail in [status.md](status.md).
 
 ## Build and check
 
