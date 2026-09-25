@@ -24,6 +24,7 @@ it belongs to the shared environment store. See `_meta.md`.
 - **G14** · A flow key outlives the socket it was made for
 - **G15** · A lookup on the tun reader lets any app stall the whole tunnel
 - **G16** · A datagram sent from a socket closed at once is dropped, even from an allowed app
+- **G17** · An app inside the VPN loses TCP when it binds its socket to tun0
 
 ## G01. `main-amnezia` looks like the current tun2socks branch and is a dead end
 
@@ -230,7 +231,10 @@ is exactly the excluded app's bypass.
 
 **How to spot it:** a deny for a flow whose owner is known to be outside the VPN (the
 excluded app, the resolver's `:853`) is this, not a bug. A genuinely failed lookup would
-also hit apps that *are* under the VPN.
+also hit apps that *are* under the VPN, though an allowed app that closes its socket at
+once ([[G16]]) or binds TCP to `tun0` ([[G17]]) gets the same answer. Since amnezia-client
+`3e9a6978` the guard logs denials at debug level. A release build prints them only with
+saving logs turned on in the app.
 
 ## G09. A socket the app has closed belongs to UID 0
 
@@ -461,3 +465,31 @@ mode (3 in two minutes on 2026-09-25). A real bypass attempt retransmits and is 
 again every second.
 
 **Portable:** no
+
+## G17. An app inside the VPN loses TCP when it binds its socket to tun0
+
+**Context:** the review of amnezia-client#3199 by @izhddm, 2026-09-25, in "all except
+listed apps" mode with `adb shell` inside the VPN, confirmed in their re-test of the
+reworked branches the same day. Not reproduced by us.
+
+**Symptom:** with strict mode on, TCP with `SO_BINDTODEVICE("tun0")` from an app that *is*
+allowed into the tunnel is denied every time as "owner unresolved" (3 of 3). The same
+connect without binding works, and UDP bound to `tun0` works as well.
+`curl --interface tun0` from an allowed Termux is exactly this case, and it looks like a
+broken VPN.
+
+**Cause:** the platform's lookup. `InetDiagMessage` sends the exact-match request with
+`ifIndex = 0`, and the kernel's `inet_match` does not match a socket bound to a device
+when the request names no interface. So a device-bound TCP socket is never found, and
+the answer is `INVALID_UID` ([[A03]]). UDP is found anyway, by the wildcard dump that
+follows the failed exact request, because the dump does not compare the interface.
+
+**Fix:** none on the app side. `ConnectivityManager.getConnectionOwnerUid` takes no
+interface, so nothing in the public API reaches the right request. It is stated as a
+limitation in amnezia-client#3199. Allowing unresolved TCP would reopen the bypass.
+
+**How to spot it:** an allowed app fails only on TCP, only when it binds to `tun0` (look
+for `--interface`, `SO_BINDTODEVICE`, "bind to network interface" options), and every SYN
+retransmit is denied again.
+
+**Portable:** yes — any use of `getConnectionOwnerUid` for a socket bound to a device

@@ -18,7 +18,7 @@ Not affiliated with Amnezia. These are one contributor's notes, published becaus
 
 - [docs/start.md](docs/start.md) — what to read for which question
 - [docs/architecture.md](docs/architecture.md) — the ten decisions, A01–A10: why the filter is in userspace, why Go asks and Kotlin decides, why an unresolved owner is denied
-- [docs/gotchas.md](docs/gotchas.md) — sixteen traps that cost time, including the five worth knowing before writing this kind of filter:
+- [docs/gotchas.md](docs/gotchas.md) — seventeen traps that cost time, including the five worth knowing before writing this kind of filter:
   - **G11** any app can ping through `tun0`, and ICMP has no owner to look up
   - **G08** `getConnectionOwnerUid` answers `INVALID_UID` for any app your VPN does not cover, not only when no socket matches
   - **G09** a socket the app has closed belongs to UID 0, so re-judging a flow drops its FIN

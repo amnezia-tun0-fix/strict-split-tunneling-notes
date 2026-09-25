@@ -47,6 +47,10 @@ see [method-delta.md](method-delta.md) for why.
 - **Wondering why something is denied** → [[G08]] first (`INVALID_UID` is mostly "not
   under our VPN"), [[A03]] for the fail-closed rule, [[G03]] for why Go cannot resolve it.
 - **Writing into these documents** → `RULES.md` of the standard, via [_meta.md](_meta.md).
+- **A session opens with a `gh_inbox:` list** → reviewers answer in several places (a review
+  on one PR, a comment on another, the issue), and the list is everything new since the
+  last check. Handle each item, then run `python tools/gh_inbox.py --mark`. The list is
+  printed by a SessionStart hook in `.claude/settings.local.json`.
 
 ## Three facts to know up front
 

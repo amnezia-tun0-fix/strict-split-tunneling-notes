@@ -72,6 +72,8 @@ history in [journal.md](journal.md).
   `Device.ReleaseOutboundPacket`, not from the tun reader. It mirrors the reader's peer
   lookup and staging; a change to that part of `RoutineReadFromTUN` upstream has to be
   mirrored there. See [[G15]].
+- **The guard's denials are logged at debug level** since `3e9a6978`. On a release build,
+  turn on saving logs in the app before counting denials in logcat.
 - **"owner uid unresolved" in the guard's log** is usually not a failed lookup: Android
   returns `INVALID_UID` for any owner our VPN does not apply to (AOSP source). See [[G08]].
 - **`awgVersion()` reports `v3.1.20260814`** in the fork build although the linked code is
