@@ -5,6 +5,7 @@ registers and is not restated here. `git log` in each fork has what changed line
 
 ## Index
 
+- **2026-09-25** — strict.3 released: the reworked filter, for anyone who installed strict.2
 - **2026-09-25** — a second review: the lookup leaves the tun reader, measured on the phone
 - **2026-09-24** — cloned apps were blocked in include mode: the guard compared uids
 - **2026-09-23** — a signed test build published for anyone who wants to check the fix
@@ -23,6 +24,25 @@ registers and is not restated here. `git log` in each fork has what changed line
 - **2026-09-16** — rebased all four branches onto current upstream
 - **2026-07-26** — forks confirmed as the only surviving copy
 - **2026-07-01** — filter implemented on both datapaths
+
+## 2026-09-25 — strict.3 released: the reworked filter, for anyone who installed strict.2
+
+The build linked from #2457 still had both problems the review found, a tunnel that any
+app could stall and verdicts that outlived their sockets. So the reworked branches went
+out as a third test build rather than waiting for the maintainers.
+
+It was built from `3e9a6978`, one commit past the build measured earlier in the day,
+which only lowers the guard's log level. It was checked again as the artefact itself,
+not assumed from the earlier run: include 0/6 on, exclude 0/6 on and 6/6 off, 1000 new
+flows/s at a p50 of about 200 ms. Logcat showed no deny lines during blocked probes,
+which is the log change working. The file uploaded to the release is byte-identical to
+the one installed for the check (sha256 `0479e16d…`, the digest GitHub reports).
+
+The announcement on #2457 also mentions amnezia-client#3214. It is a different channel
+to the same server address, found by the same reviewer.
+
+Status: Working
+Next: waiting — on the maintainers, and on anyone who tries strict.3
 
 ## 2026-09-25 — a second review: the lookup leaves the tun reader, measured on the phone
 

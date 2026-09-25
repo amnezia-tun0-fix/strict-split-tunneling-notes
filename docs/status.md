@@ -32,7 +32,9 @@ history in [journal.md](journal.md).
   branches at `cdee4ba`, `38e28430`, `cec802df` (recipe `strict.5`). Published
   2026-09-25: the PR branches as new commits (`5864fd3`, `94c30d75`, `4d00910f`, no
   force-push), the three PR texts updated, and a reply to @izhddm on #199 with the numbers.
-  The test build in the releases is still `strict.2`, which predates this.
+  Released as `v5.0.3.1-strict.3` (tag on `3e9a6978`, sha256 `0479e16d…`) after its
+  own device check: 0/6 on in both modes, 6/6 off, 1000 flows/s at a p50 of about 200 ms.
+  Announced on #2457, and the first comment there now links strict.3.
 - **Xray path, built but not run.** `filter` in `amnezia-tun2socks`, `RegisterUidFilter` in
   `amnezia-libxray`, registration in `Xray.kt`. Go tests pass.
 - **Kotlin and settings** (`amnezia-client`): `StrictSplitTunnelGuard.createOrNull` is shared
