@@ -28,6 +28,7 @@ What it means for us:
 Also filed by @izhddm: xtclovver/RKNHardering#88, the detector side of the same finding.
 
 
+## 2026-09-23 — reviewed before cutting the AmneziaWG PR branches
 
 | Repo | Range reviewed | Verdict |
 |---|---|---|
