@@ -71,6 +71,12 @@ change.
   blocks that are ours — they are `lupdate` output ([[G05]]). Register indexes in these
   documents — `make_index.py` generates them.
 - **Never auto-format:** anything inside the five fork clones.
+- **Replies on GitHub start with the addressee's handle** (`@izhddm …`). A PR's
+  conversation is flat, and an answer to a review or a general comment cannot be
+  threaded, so without the handle a maintainer reading from the end cannot tell who is
+  being answered. Only line comments thread. A handle added by editing a posted comment
+  sends no notification, so put it in the draft. Drafts live in `pr-drafts/`, and the
+  PR-branch commit hashes they cite differ from the working branch ones.
 
 ## These documents
 
