@@ -6,7 +6,28 @@ Without this, every session re-checks the same range — or no session does.
 Upstream is `github.com/amnezia-vpn/<repo>`; our forks are under
 `github.com/amnezia-tun0-fix`. Each clone carries both as `upstream` and `origin`.
 
-## 2026-09-23 — reviewed before cutting the AmneziaWG PR branches
+## 2026-09-25 — a related PR by our reviewer: the Xray server address in VPN routes
+
+amnezia-vpn/amnezia-client#3214 by @izhddm, not addressed to us. On Android 13+ `Xray.kt`
+calls `excludeRoute(hostName/32)`. The platform turns that into a `throw` route in the VPN
+network's `LinkProperties`, and any app with `ACCESS_NETWORK_STATE` can read it, excluded
+apps included. That discloses the server's address with no packet sent. The PR deletes
+the three lines. Xray's own sockets are already `protect()`ed through the dialer
+controller, and on Android 10–12 `Protocol.kt` never applied the route anyway.
+
+What it means for us:
+- **AmneziaWG:** not affected. On our Poco the AWG connection's routes are `0.0.0.0/0`,
+  `2000::/3` and the tunnel address, with no `throw` route and no endpoint.
+- **Our Xray branch:** it carries the same `excludeRoute`. If the Xray path is ever
+  submitted, it has to drop those lines too, or build on top of #3214.
+- **OpenVPN** (`OpenVpn.kt`) excludes its remote the same way. The PR leaves it alone for
+  want of a server to test, and so do we.
+- **Scope:** this is a passive channel next to the active one strict mode closes (#2457).
+  The two are complementary, and neither closes the other.
+
+Also filed by @izhddm: xtclovver/RKNHardering#88, the detector side of the same finding.
+
+
 
 | Repo | Range reviewed | Verdict |
 |---|---|---|
