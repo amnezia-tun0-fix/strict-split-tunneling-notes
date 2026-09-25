@@ -28,9 +28,11 @@ history in [journal.md](journal.md).
   Measured with `tools/churn_probe`: at up to 5000 new flows/s, TCP connects kept a p50 of
   about 200 ms, as with the filter off; `strict.2` reached 1.1 s at 1000/s. Leak probes
   from an excluded app: 0/6 on, 6/6 off, ICMP via `tun0` timed out and answered
-  respectively; in include mode 0/6 with strict on, and browsing worked. No JNI errors. Pushed on the working branches (`cdee4ba`, `38e28430`,
-  `cec802df`, recipe `strict.5`); the PR branches carry the same commits locally
-  (`5864fd3`, `94c30d75`, `4d00910f`) and are not pushed.
+  respectively; in include mode 0/6 with strict on, and browsing worked. No JNI errors. Working
+  branches at `cdee4ba`, `38e28430`, `cec802df` (recipe `strict.5`). Published
+  2026-09-25: the PR branches as new commits (`5864fd3`, `94c30d75`, `4d00910f`, no
+  force-push), the three PR texts updated, and a reply to @izhddm on #199 with the numbers.
+  The test build in the releases is still `strict.2`, which predates this.
 - **Xray path, built but not run.** `filter` in `amnezia-tun2socks`, `RegisterUidFilter` in
   `amnezia-libxray`, registration in `Xray.kt`. Go tests pass.
 - **Kotlin and settings** (`amnezia-client`): `StrictSplitTunnelGuard.createOrNull` is shared

@@ -74,8 +74,9 @@ loss is the path, not the filter. Leak probes from the excluded app gave 0/6 wit
 switch on and 6/6 with it off.
 
 Gotchas: [[G12]], [[G14]], [[G15]], [[G16]]
-Status: Working · verified on the device, working branches pushed
-Next: after a yes, push the PR branches, update the three PR texts, reply to @izhddm
+Status: Working · verified on the device and published: PR branches pushed as new
+commits, the three PR texts updated, the reply posted on #199, the notes synced
+Next: waiting — on @izhddm and the maintainers; a `strict.3` test build only if asked
 
 ## 2026-09-24 — cloned apps were blocked in include mode: the guard compared uids
 
