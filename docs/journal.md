@@ -5,6 +5,7 @@ registers and is not restated here. `git log` in each fork has what changed line
 
 ## Index
 
+- **2026-09-26** — a warm-up PR, and why a Private DNS warning is not a one-liner
 - **2026-09-26** — two rebase traps now refuse the push instead of relying on a reader
 - **2026-09-25** — strict.3 released: the reworked filter, for anyone who installed strict.2
 - **2026-09-25** — a second review: the lookup leaves the tun reader, measured on the phone
@@ -25,6 +26,29 @@ registers and is not restated here. `git log` in each fork has what changed line
 - **2026-09-16** — rebased all four branches onto current upstream
 - **2026-07-26** — forks confirmed as the only surviving copy
 - **2026-07-01** — filter implemented on both datapaths
+
+## 2026-09-26 — a warm-up PR, and why a Private DNS warning is not a one-liner
+
+The one-line Makefile fix that sat in Deferred went out as amneziawg-android#105. Before
+sending it, the effect had to be shown and not just argued. Our own logcat from every
+device run since 09-20 already had `UAPIOpen: mkdir /var: read-only file system`, noise
+we had read past. A probe calling `ipc.UAPIOpen` settled what the flag does. Run as
+Termux, the old path failed on `/var`, and the `/v3` path created the socket. Run from
+`adb shell` it proved nothing: SELinux denies the `shell` domain a socket in
+`/data/local/tmp`, which says nothing about an app. The same review changed #3199 from
+"Fixes #2457" to "Addresses #2457", so merging it will not close the issue while Xray is
+open.
+
+The Private DNS warning ([[A10]]) looked cheap, and detecting the case is:
+`LinkProperties.getPrivateDnsServerName()` is non-null exactly in hostname mode (API 28).
+Telling the user is not. A reason thrown from the service never reaches the screen as
+text ([[G18]]). So the choice is between an Android-side notification and building
+upstream's missing error channel. It is left to the user, together with a device check
+that needs Private DNS switched to a hostname on the phone.
+
+Gotchas: [[G18]]
+Status: Working · #105 submitted, #3199 text edited
+Next: the user's choice on the Private DNS warning; waiting on the maintainers
 
 ## 2026-09-26 — two rebase traps now refuse the push instead of relying on a reader
 

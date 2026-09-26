@@ -50,6 +50,9 @@ history in [journal.md](journal.md).
 - **Submitted 2026-09-23**, AmneziaWG only, from `pr/strict-split-tunneling`: amneziawg-go#199
   (filter), amneziawg-android#104 (bridge), amnezia-client#3199 (setting), plus a comment on
   issue #2457. Each PR needs the previous one released. Texts as sent: `pr-drafts/`.
+  Since 2026-09-26 #3199 says "Addresses #2457", so merging it leaves the issue open for Xray.
+- **Submitted 2026-09-26, independent of the series:** amneziawg-android#105. The Makefile's
+  `-X` flag lacked `/v3`, so the UAPI socket never opened on Android.
 - **Published notes:** `github.com/amnezia-tun0-fix/strict-split-tunneling-notes` — these
   documents, the probes and the screenshots, linked from the PRs.
 - **Test build** `v5.0.3.1-strict.1` in the `amnezia-client` fork's releases: tag on
@@ -99,5 +102,3 @@ None open.
   until someone runs `lupdate`.
 - **The Xray path.** Not submitted: it cannot be run on a device from here. The branches are
   linked from amnezia-client#3199 for anyone who can test them.
-- **A warm-up PR to amneziawg-android.** In `libwg-go/Makefile` the `-X` ldflag names the
-  module path without `/v3`, so it sets nothing. One line, independent of the series.

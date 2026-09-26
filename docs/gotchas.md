@@ -25,6 +25,7 @@ it belongs to the shared environment store. See `_meta.md`.
 - **G15** · A lookup on the tun reader lets any app stall the whole tunnel
 - **G16** · A datagram sent from a socket closed at once is dropped, even from an allowed app
 - **G17** · An app inside the VPN loses TCP when it binds its socket to tun0
+- **G18** · An error thrown when the Android VPN service starts never reaches the user as text
 
 ## G01. `main-amnezia` looks like the current tun2socks branch and is a dead end
 
@@ -495,3 +496,25 @@ for `--interface`, `SO_BINDTODEVICE`, "bind to network interface" options), and 
 retransmit is denied again.
 
 **Portable:** yes — any use of `getConnectionOwnerUid` for a socket bound to a device
+
+## G18. An error thrown when the Android VPN service starts never reaches the user as text
+
+**Context:** designing a clear message for include mode with strict filtering and Private
+DNS by hostname ([[A10]]), 2026-09-26.
+
+**Symptom:** a `VpnStartException("…")` thrown from a protocol's start looks like the
+natural way to tell the user why a connection was refused. The user sees only a generic
+connection error, and the message ends up in logcat.
+
+**Cause:** `AmneziaVpnService.onError` sends the text to the activity as
+`ServiceEvent.ERROR` with `MSG_ERROR`. `AmneziaActivity` logs it and calls
+`QtAndroidController.onServiceError()`, which takes no arguments, next to upstream's own
+`// todo: add error reporting to Qt`. The Qt side gets the bare `serviceError()` signal.
+
+**Fix:** to show a specific reason, either extend that channel end to end (JNI signature,
+`AndroidController`, an error code for QML — upstream's unfinished work, not a side
+effect of a feature PR) or tell the user from the Android side, with a notification or a
+toast from the service.
+
+**How to spot it:** grep `todo: add error reporting to Qt` in `AmneziaActivity.kt`. If
+it is gone, upstream has built the channel and the first option has become cheap.
