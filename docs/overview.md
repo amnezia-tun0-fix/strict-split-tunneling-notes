@@ -45,7 +45,7 @@ This directory is an umbrella. The five folders below are clones of forks under
 AmneziaVPN_repos/
 ├── ai_docs/              these documents
 ├── ai_docs_method/       how this project departs from the standard (D1)  → docs/method-delta.md
-├── tools/                linter config and the on-device probes
+├── tools/                linter config, the on-device probes, the pre-push preflight
 ├── amnezia-client/       Kotlin service layer + C++/QML client and the toggle
 ├── amnezia-libxray/      gomobile bridge: exposes the filter to Android
 ├── amnezia-tun2socks/    Xray datapath — filter hook in the gVisor forwarders

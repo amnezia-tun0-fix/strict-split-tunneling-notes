@@ -5,6 +5,7 @@ registers and is not restated here. `git log` in each fork has what changed line
 
 ## Index
 
+- **2026-09-26** — two rebase traps now refuse the push instead of relying on a reader
 - **2026-09-25** — strict.3 released: the reworked filter, for anyone who installed strict.2
 - **2026-09-25** — a second review: the lookup leaves the tun reader, measured on the phone
 - **2026-09-24** — cloned apps were blocked in include mode: the guard compared uids
@@ -24,6 +25,23 @@ registers and is not restated here. `git log` in each fork has what changed line
 - **2026-09-16** — rebased all four branches onto current upstream
 - **2026-07-26** — forks confirmed as the only surviving copy
 - **2026-07-01** — filter implemented on both datapaths
+
+## 2026-09-26 — two rebase traps now refuse the push instead of relying on a reader
+
+[[G06]] and [[G04]] had only a "how to spot it" line. The first is a hook git can put
+one line too high while everything still compiles. The second is a fork `replace` that
+belongs on `feat/*` and would look like a swapped dependency in a security PR. Either
+would be missed by a session that skipped the entry, and the next push after a rebase
+is exactly when that happens. `tools/preflight.py` now checks both, and its pre-push
+hook in all five forks refuses a failing push. It reads the pushed commit, not the
+working tree. Tested on a scratch clone: a path `replace` on `pr/*` and a hook above the
+anchor were refused, while the same `replace` on `feat/*` and a clean branch passed.
+
+The same session found the upstream heads of all three PR repos already contained in
+our PR branches, so nothing needs a rebase.
+
+Status: Working
+Next: waiting — on the maintainers
 
 ## 2026-09-25 — strict.3 released: the reworked filter, for anyone who installed strict.2
 

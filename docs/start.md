@@ -40,7 +40,9 @@ see [method-delta.md](method-delta.md) for why.
   ports are `Int`, and the thread rules matter).
 - **Rebasing onto upstream** → [references/upstream-watch.md](references/upstream-watch.md)
   for what was already reviewed, then [[G01]] (which base is real) and [[G05]] (the
-  translation catalogue is generated — never merge it line by line).
+  translation catalogue is generated — never merge it line by line). Afterwards run
+  `python tools/preflight.py`. On a fresh clone of a fork, install its pre-push hook with
+  `python tools/preflight.py --install`: hooks live in `.git/hooks` and are not versioned.
 - **Trying to build an `.aar` or the app** → [[G04]]: a path-shaped `replace` never
   reaches the conan build; then [[A07]] for the pins and [[A08]] for the APK.
 - **Adding or changing a setting** → [[A05]]; mirror the `killSwitch` chain exactly.

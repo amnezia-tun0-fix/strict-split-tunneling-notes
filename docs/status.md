@@ -1,6 +1,6 @@
 # Status
 
-**Updated:** 2026-09-25
+**Updated:** 2026-09-26
 
 State only — reasons in [architecture.md](architecture.md) and [gotchas.md](gotchas.md),
 history in [journal.md](journal.md).
@@ -61,11 +61,13 @@ history in [journal.md](journal.md).
 ## Fragile points
 
 - **The AmneziaWG hook anchor** (`amneziawg-go/device/send.go`): a rebase can place the hook
-  *above* `elem.padding = padding` and it still compiles. See [[G06]].
+  *above* `elem.padding = padding` and it still compiles. See [[G06]]. Checked by
+  `tools/preflight.py` and its pre-push hook.
 - **The `sha256` in `recipes/amnezia-libxray/conanfile.py`**: every push to the libxray fork
   invalidates it. The `awg-android` recipe has only `_commit` to update. See [[A07]].
 - **The `replace` lines in both forks' `go.mod`**: fork-only, must never reach a PR; a
-  path-shaped one never reaches the real build. See [[G04]].
+  path-shaped one never reaches the real build. See [[G04]]. A push of a `pr/*` branch
+  carrying one is refused by the pre-push hook.
 - **`amneziavpn_ru_RU.ts`**: generated wholesale by `lupdate`; never merge it line by line.
   See [[G05]].
 - **The two Go↔Kotlin contracts differ**: gomobile gives `Long` ports and lower-cased names

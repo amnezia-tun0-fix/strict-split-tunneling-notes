@@ -129,7 +129,8 @@ above in the same file. The whole chain is [[A07]].
 **How to spot it:** `git diff go.mod` after a build used to be the check and is now
 worthless. Check the artefact instead — unzip the `.aar` and look for the expected class.
 Any `replace` whose right-hand side begins with `.` or `/` will not survive contact with
-a build that is not yours.
+a build that is not yours. The fork redirect is fork-only as well: a `pr/*` branch must
+carry neither shape. The pre-push hook from `tools/preflight.py` refuses such a push.
 
 ## G05. Rebasing amnezia-client conflicts across the whole translation catalogue
 
@@ -174,7 +175,8 @@ was renamed to `github.com/amnezia-vpn/amneziawg-go/v3`, so the import line need
 
 **How to spot it:** after any rebase of this repo, read the ten lines around the anchor
 rather than trusting a clean `git status`. This is a conflict git can resolve *plausibly*
-and wrongly.
+and wrongly. `python tools/preflight.py` checks the order on every local branch, and its
+pre-push hook refuses to push a branch where the hook does not follow the anchor.
 
 ## G07. There is nowhere to put a Kotlin unit test in amnezia-client
 

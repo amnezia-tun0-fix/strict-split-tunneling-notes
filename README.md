@@ -41,6 +41,8 @@ python dns_probe.py  <label> [vpn_server_ip]   # DNS through the system resolver
 
 `tools/churn_probe` is a Go program for load: TCP connect latency through the tunnel while another process opens new UDP flows at a fixed rate, with the sockets held open or closed at once, and a mode that counts answered DNS queries from fresh sockets. Build it with `GOOS=android GOARCH=arm64 CGO_ENABLED=0 go build`, push it to `/data/local/tmp` and run it from `adb shell`; the usage is at the top of `main.go`. The numbers it produced are in [amneziawg-go#199](https://github.com/amnezia-vpn/amneziawg-go/pull/199) and in [G15](docs/gotchas.md).
 
+`tools/preflight.py` is not a probe but a guard for our own pushes: run from the umbrella directory next to the fork clones, it checks that a `pr/*` branch carries no fork `replace` and that the AmneziaWG hook sits after `elem.padding` ([G04, G06](docs/gotchas.md)). `--install` adds it to the forks as a pre-push hook.
+
 ## The setting
 
 | <img src="screenshots/1-switch-off.jpg" width="200"> | <img src="screenshots/2-enable-dialog.jpg" width="200"> | <img src="screenshots/3-switch-on.jpg" width="200"> | <img src="screenshots/4-locked-while-connected.jpg" width="200"> |
