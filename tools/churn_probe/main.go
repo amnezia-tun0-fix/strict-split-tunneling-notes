@@ -28,6 +28,7 @@ import (
 	"net"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -35,6 +36,11 @@ import (
 )
 
 func main() {
+	// Termux runs binaries from its home through the system linker, which leaves
+	// the binary's own path in os.Args[1]. Drop it so the mode comes first again.
+	if len(os.Args) > 1 && strings.HasSuffix(os.Args[1], "churn_probe") {
+		os.Args = append(os.Args[:1], os.Args[2:]...)
+	}
 	if len(os.Args) < 2 {
 		fmt.Fprintln(os.Stderr, "usage: churn_probe flows|connect|dns [flags]")
 		os.Exit(2)

@@ -10,6 +10,8 @@
 - **A08** · Test builds go through the stock `--sign` path, signed with the Android debug key
 - **A09** · The AmneziaWG bridge is a hand-written JNI upcall on the Go thread
 - **A10** · Include mode with strict filtering does not support Private DNS by hostname
+- **A11** · Test builds install next to the store app, as `org.amnezia.vpn.strict`
+- **A12** · Fork builds take commands from adb through a system property
 
 ## Big picture
 
@@ -43,7 +45,9 @@ Android does try to stop it, and the kernel undoes that. `ip rule` on a phone ha
 `oif tun0 uidrange <VPN uids> lookup <vpn table>` for the VPN's own uids and nothing for
 the rest. For any other uid `fib_lookup` fails, and `ip_route_output_key_hash_rcu` then
 assumes the destination is on-link because the socket named an output interface, and
-sends anyway. `ip route get <ip> oif tun0 uid 2000` shows `dev tun0` with no table.
+sends anyway. In "only listed apps" mode, where `adb shell` (uid 2000) is outside the VPN,
+`ip route get <ip> oif tun0 uid 2000` shows `dev tun0` with no table; for a listed uid it
+shows the VPN table.
 A VPN app can change neither the rules nor the kernel, and the packets look the same
 either way: same source address, no mark. (Explained by @izhddm in the review of
 amneziawg-go#199.) This is the IPv4 output path. Per the same reviewer, the IPv6 path in
@@ -158,7 +162,8 @@ judges only packets with SYN set, which makes it one decision per connection lik
 Xray path: a connection whose SYN was denied never exists, so every later packet belongs
 to an allowed one. Judging later packets was wrong, not just wasteful — see [[G09]].
 Every SYN is judged and none is cached. For UDP it caches the verdict per **full
-5-tuple**, TTL 10 s on a coarse clock ([[G12]]), capped at 4096 entries, and asks only
+5-tuple**, TTL 10 s on a coarse clock ([[G12]]), capped at 4096 entries (a full cache
+evicts expired and denied verdicts first, [[G19]]), and asks only
 on a miss.
 
 The cache and the flows waiting for a verdict belong to one device: a `uidfilter.Gate` in
@@ -270,7 +275,11 @@ The AmneziaWG path follows the same pattern one level deeper. `amneziawg-android
 `recipes/awg-android` clones the `amneziawg-android` fork and checks out a pinned commit,
 under version `3.1.20260814-strict.N`. This recipe fetches with `git clone`, not an archive,
 so there is no `sha256` to recompute. After a push to the fork `_commit` changes, and the
-`strict.N` suffix goes up with it here and in the root `conanfile.py` (now `strict.5`).
+`strict.N` suffix goes up with it here and in the root `conanfile.py` (now `strict.7`).
+Test releases were numbered separately (`v5.0.3.1-strict.1` to `strict.3` were built on
+recipes `strict.4` and `strict.5`), and the two counters got mixed up in writing. From
+`strict.7` on, a release takes the number of the recipe it is built on; `strict.4` to
+`strict.6` were never released.
 
 ## A08. Test builds go through the stock `--sign` path, signed with the Android debug key
 
@@ -292,10 +301,12 @@ those variables exported; the result is `AmneziaVPN.apk` in the build tree, unde
 
 **Consequences:** the build we test is byte-for-byte the build CI makes, apart from the
 certificate. That certificate is also the cost: Android refuses to update an app signed by
-a different key, so our APK **cannot be installed over the store build of AmneziaVPN**.
-The store build has to be uninstalled first, and its configurations go with it, so export
-them before on-device work. *Divergence from upstream:* none. This is a local choice of key,
-not a change to any file.
+a different key, so an APK built as `org.amnezia.vpn` cannot be installed over the store
+build of AmneziaVPN: the store build had to be uninstalled first, and its configurations went
+with it. Since 2026-09-30 the test build has its own applicationId and installs next to the
+store build instead ([[A11]]). Published test releases are signed with our own key
+(`~/build_release.sh`, password asked at run time), not the debug key. *Divergence from
+upstream:* none. This is a local choice of key, not a change to any file.
 
 ## A09. The AmneziaWG bridge is a hand-written JNI upcall on the Go thread
 
@@ -323,11 +334,18 @@ thread exits. Every call runs inside `PushLocalFrame`/`PopLocalFrame`, since a t
 never returns to Java never frees its local references. A mutex guards the registration
 only. Under it the upcall takes a local reference to the filter, then calls Java without
 the lock, so the four workers can wait on the platform at the same time. Until
-2026-09-25 the lock was held across the call and serialized every lookup. Each worker is
-pinned to its OS thread (`runtime.LockOSThread`), so exactly four threads get attached.
-When `Set` replaces the filter, the workers exit, their threads exit with them, and the
-pthread key detaches them. No reference, a failed attach, or a Java exception means deny
-([[A03]]). Kotlin passes a
+2026-09-25 the lock was held across the call and serialized every lookup. No reference, a
+failed attach, or a Java exception means deny ([[A03]]).
+
+**Revised 2026-09-28:** the workers were pinned to their OS threads
+(`runtime.LockOSThread`), so exactly four threads got attached and each exited with its
+worker when `Set` replaced the filter. A locked thread exits with every signal blocked, the
+pthread key detached it from the JVM right there, and the process could die of a SIGSEGV
+the JVM would normally handle ([[G24]]). On `exp/lab` workers are no longer pinned
+(`342f9ec`; the PR branch still pins them until the user decides): an exiting worker's
+thread returns to the Go scheduler and stays attached, as
+gomobile's threads do on the Xray path. More than four threads may end up attached. The
+destructor now runs only if Go itself ends a thread. Kotlin passes a
 `fun interface UidFilter` whose ports are `Int`, because JNI here is written by hand and
 takes `int`. [[G02]]'s `Long` belongs to gomobile only.
 
@@ -369,3 +387,70 @@ system UIDs are inside its ranges.
 honest "no internet" signal rather than silently. The PR text states the limitation. A UI
 hint next to the toggle was considered and left out of this series. *Divergence from
 upstream:* none.
+
+## A11. Test builds install next to the store app, as `org.amnezia.vpn.strict`
+
+**Context:** a test build signed with our key could only replace the store AmneziaVPN
+([[A08]]): trying it meant uninstalling the app a tester depends on, configurations
+included, and the reverse to go back. That kept people from testing. The experimental
+builds of 2026-09-28 already ran as `org.amnezia.vpn.exp` next to another copy and showed
+what it takes.
+
+**Alternatives:** *Keep replacing the store app* — the cost above. *Build both identities
+from one branch with a flag* — a second variant to build, name and explain in every release
+for a gain nobody asked for; the one build that updated strict.1–3 in place was not
+published.
+
+**Decision:** the working branch `feat/strict-tunnel-isolation` of amnezia-client builds as
+`applicationId = "org.amnezia.vpn.strict"` with the label «AmneziaVPN Strict», in one
+fork-only commit (`17434ae5`). The Java/Kotlin package and Gradle `namespace` stay
+`org.amnezia.vpn`. Three things have to follow the applicationId, found with the
+experimental build: the FileProvider authority (`${applicationId}.qtprovider`, which Qt
+derives from the package name), the running-service check in
+`AmneziaVpnService.isRunning` ([[G25]]), and the quick settings tile's fallback label.
+`tools/preflight.py` refuses a `pr/*` branch that carries any of the three identity lines,
+and its pre-push hook refuses the push, so the change cannot leak into a pull request.
+
+**Consequences:** the store app and the test build keep separate data: servers, keys and
+settings are imported into each on its own, and backups move between them. Android runs
+one VPN at a time, so connecting one disconnects the other. Testers of `strict.1`–`strict.3`
+(built as `org.amnezia.vpn`) get a second app rather than an update; they move their
+configuration by backup and remove the old one, which carries [[G24]]. `migrations.cpp`
+looks for `org.amnezia.vpn` in the data path to migrate a v3 config; under the new package it
+finds the prefix, looks in a directory it cannot read, and does nothing — harmless.
+The experimental build keeps `org.amnezia.vpn.exp`, so all three can coexist. *Divergence
+from upstream:* one fork-only commit touching `build.gradle.kts`, `AndroidManifest.xml`,
+`AmneziaVpnService.kt` and `AmneziaTileService.kt`.
+
+## A12. Fork builds take commands from adb through a system property
+
+**Context:** checks on the phone meant tapping through the app: connect, open the split
+tunnelling drawer, edit the list, flip the strict switch. Each step cost a screen dump or a
+screenshot, the Qt screens expose only part of their elements to `uiautomator`, and a missed
+tap spoils the rest of a run. The study of 2026-09-28 needed dozens of such changes.
+
+**Alternatives:** *An exported broadcast receiver or an intent extra carrying the command* —
+any app on the phone could send it and reconfigure the VPN. *Commands through the Qt side* —
+the settings the UI shows would follow, but it means C++ and JNI work for a test aid.
+*Starting the VPN service from adb directly* — it is guarded by `BIND_VPN_SERVICE`, which the
+shell does not hold.
+
+**Decision:** the command sits in the system property `debug.awg.ctl`, which only the shell
+can set, and an intent to the activity with the extra `adb_ctl` says "apply it". The
+activity starts the VPN service with that extra; the service reads the property, patches the
+config it saved last (mode, app list, strict flag) and connects, disconnects or reconnects.
+An app that sends the same intent can only repeat the shell's last command. The code is
+`AdbControl.kt` plus a few lines in `AmneziaActivity` and `AmneziaVpnService`, in one
+fork-only commit on `feat` (`28abcddc`); `tools/preflight.py` refuses a `pr/*` branch that
+carries it. `tools/awgctl.sh` wraps it; usage is in
+[references/device-testing.md](references/device-testing.md). The experimental build has the
+same control under the extra `exp_ctl`, plus what stays out of test releases: switchable
+prototypes, counters and a live filter switch in the Go library.
+
+**Consequences:** runs on the phone need no taps once a key is imported. The UI does not see
+changes made this way, and a connect from the UI sends its own config over them. Two bugs of
+the first version were found by using it and are fixed in the commit: a `reconnect` let the
+service stop itself between the two halves, and an activity already on screen did not bind
+to the service, so its button did not follow the tunnel. Keeping the counters out of test
+releases keeps their filter code identical to the pull request. *Divergence from upstream:*
+fork-only; one new file and three hooks.

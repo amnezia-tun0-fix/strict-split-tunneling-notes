@@ -26,6 +26,13 @@ it belongs to the shared environment store. See `_meta.md`.
 - **G16** · A datagram sent from a socket closed at once is dropped, even from an allowed app
 - **G17** · An app inside the VPN loses TCP when it binds its socket to tun0
 - **G18** · An error thrown when the Android VPN service starts never reaches the user as text
+- **G19** · A verdict cache that resets on overflow lets any app evict allowed UDP flows
+- **G20** · An active UDP flow loses packets every time its cached verdict expires
+- **G21** · A burst that opens a UDP flow keeps only its first four packets
+- **G22** · A connection into a listed app through the tunnel never completes in include mode
+- **G23** · A UDP datagram larger than the tunnel MTU never leaves, even from an allowed app
+- **G24** · The VPN service dies when the filter's workers exit, and leaves no tombstone
+- **G25** · A build with another applicationId never finds its own running VPN service
 
 ## G01. `main-amnezia` looks like the current tun2socks branch and is a dead end
 
@@ -300,8 +307,14 @@ server's address. `getConnectionOwnerUid` answers for TCP and UDP only, so an ow
 filter cannot judge it — and "cannot judge" had been implemented as "allow".
 
 **Fix:** while a filter is installed, drop what cannot be attributed: other protocols,
-IPv4 fragments, IPv6 with extension headers ([[A03]]). The cost: ping and traceroute stop
-working inside the tunnel for listed apps in strict mode. Measured: echo via `tun0` times
+IPv4 fragments, IPv6 with extension headers ([[A03]]). The cost: ping and ICMP traceroute
+(`-I`) stop working inside the tunnel for listed apps in strict mode, and so does the
+ICMP the phone's kernel sends on its own: a ping from another peer to the phone's tunnel
+address got 0 of 5 echo replies, twice (2026-09-28, `evidence/research-2026-09-28/m3-inbound.txt`).
+Large UDP datagrams are the other casualty ([[G23]]). Plain traceroute sends UDP and keeps
+working: from Termux, UDP probes with rising TTL reached 1.1.1.1 in 10 hops, the answers
+read from the socket's error queue (`tools/udp_traceroute.py`, `m6-udp-traceroute.txt`).
+Measured: echo via `tun0` times
 out with the filter on, answers with it off (`tools/icmp_probe.py`, `evidence/e6-icmp/`).
 
 **How to spot it:** the leak probe tests TCP and UDP; run `icmp_probe.py` next to it. Any
@@ -428,7 +441,8 @@ device: 4 packets per flow, 1 MiB, 256 flows, and 2 s at most per packet. The ve
 releases or drops what was held, in order, through `Device.ReleaseOutboundPacket`.
 Holding matters more than dropping: a dropped first packet costs every new TCP connection
 a 1 s SYN retransmit and every DNS query a retry. With the table full, new flows are
-dropped and not cached; flows already allowed never are. The JNI lock covers only the
+dropped and not cached. Established TCP never is, since its packets carry no SYN; an
+allowed UDP flow can be, once its verdict leaves the cache ([[G19]]). The JNI lock covers only the
 registration, and the retry is gone ([[A03]]). Measured afterwards on the same phone: a
 p50 of about 200 ms at every rate up to 5000 flows/s, sockets held or closed, the same as
 with the filter off. DNS queries from fresh sockets were answered at the same rate with
@@ -473,7 +487,10 @@ again every second.
 
 **Context:** the review of amnezia-client#3199 by @izhddm, 2026-09-25, in "all except
 listed apps" mode with `adb shell` inside the VPN, confirmed in their re-test of the
-reworked branches the same day. Not reproduced by us.
+reworked branches the same day. Reproduced by us on 2026-09-28 in "only listed apps" mode,
+from a listed Termux: `curl --interface tun0` timed out 2 of 2, the same request unbound
+answered in 0.8 s, and 19 of 19 DNS queries bound to `tun0` were answered
+(`evidence/research-2026-09-28/m7-g17.txt`).
 
 **Symptom:** with strict mode on, TCP with `SO_BINDTODEVICE("tun0")` from an app that *is*
 allowed into the tunnel is denied every time as "owner unresolved" (3 of 3). The same
@@ -518,3 +535,227 @@ toast from the service.
 
 **How to spot it:** grep `todo: add error reporting to Qt` in `AmneziaActivity.kt`. If
 it is gone, upstream has built the channel and the first option has become cheap.
+
+## G19. A verdict cache that resets on overflow lets any app evict allowed UDP flows
+
+**Context:** a review of `amneziawg-go/uidfilter` against the text of an article about
+the fix, 2026-09-28. Found in the code and reproduced with a unit test on a scratch copy;
+not measured on a device.
+
+**Symptom:** none visible yet. The reproduction: an allowed UDP flow, then 4200 denied
+flows; the cache resets, the allowed flow's verdict is gone, and with 256 flows already
+pending its next packet is dropped and never sent.
+
+**Cause:** `decisionCache.put` holds 4096 entries, denied verdicts included. When it is
+full of live entries it drops the whole map, allowed verdicts with it. With a 10 s TTL,
+about 410 new flows per second keep it full. Any app can produce that through `tun0`,
+including one outside the VPN whose flows are all denied. An evicted allowed flow goes
+back through `hold`, and if `maxPendingFlows` is reached its packet is dropped
+("judged once there is room"). The same happens at every TTL boundary under load. It
+does not leak anything: every path still fails closed. It degrades QUIC and calls of
+allowed apps.
+
+**Fix:** `0f0382e` on `feat` (`2a9f1f1` on the PR branch). A full cache evicts expired
+and denied entries first, and allowed ones only while they alone fill more than seven
+eighths of it. A hit refreshes nothing: a sliding TTL would let a socket that took over
+a closed allowed flow's 5-tuple keep its verdict for as long as it sends ([[G14]]).
+`TestCacheFloodKeepsAllowed` and `TestCacheFullOfAllowedEvictsPart` cover it. On the phone
+(recipe `strict.6`): with an excluded app flooding `tun0` at 5000 denied flows/s, fresh DNS
+queries of an allowed app were answered 97.7% of the time against 99.5% without the flood,
+and TCP connects kept a p50 of 216 ms (`evidence/e8-churn/strict6-ON-denied-flood.txt`).
+Repeated with counters on 2026-09-28: 4 workers judge the 5000 denied flows/s at a median
+under 1 ms, and in four runs the filter dropped no DNS packet at all (99.0–99.8% answered,
+drifting run by run, with 4 or 8 workers alike). Its only drops came at the onset of a flood,
+once: 364 flows turned away by a full pending table in the first 5 s
+(`evidence/research-2026-09-28/m11-flood.txt`).
+
+**How to spot it:** a cache that holds both outcomes and resets wholesale, next to a
+queue with a hard cap. Ask what an attacker who can only produce denied entries does to
+the allowed ones.
+
+**Portable:** yes — any bounded verdict cache that an untrusted party can fill
+
+## G20. An active UDP flow loses packets every time its cached verdict expires
+
+**Context:** a review of `amneziawg-go/uidfilter` with tests that pin down current
+behaviour, 2026-09-28 (`TestProofExpiredVerdictDropsBurst` on the fork's
+`exp/proof-tests`).
+
+**Symptom:** none reported. In the test, an allowed UDP flow sends a burst of 20 packets
+right after its cached verdict expires: 4 are sent after the lookup, 16 are dropped. On
+the phone (2026-09-28, `tools/udp_flow_probe.py`, one socket sending 20 DNS queries every
+100 ms for 60 s): 16 of 200 queries lost about every 10 s, 0.8–1.0% in all, always the
+tail of a burst, and the counters showed `udp_expired_rejudged=1 drop_held_cap=16` each
+time (`evidence/research-2026-09-28/m1-udp-flow.txt`).
+
+**Cause:** a UDP verdict is cached for `cacheTTL` (10 s) and not refreshed by hits
+([[G19]] explains why). When it expires, the next packet of the flow goes through `hold`
+as if the flow were new, and while the lookup runs only `maxHeldPerFlow` (4) packets are
+kept. Every packet past the fourth is dropped, although the flow was allowed before the
+lookup and is allowed after it. This happens to every active UDP flow once per TTL: QUIC,
+calls, games. With the pending table full, all its packets are dropped until there is
+room ([[G19]], [[G15]]).
+
+**Fix:** open. Two prototypes on the fork's `exp/lab`, both measured on the phone with
+the same probe (`m1-udp-flow.txt`, `m1-udp-flow-ra2.txt`; the filter removed: 0.14%, no
+10 s rhythm, `ctl-strictOFF.txt`):
+- `rv` keeps passing the flow on its expired allowed verdict while it is judged again, for
+  at most `maxHoldTime`. Loss 0.14% and 0.32% against 0.8–1.0% without it, the rhythm
+  gone. It lets a socket that took over the 5-tuple ([[G14]]) pass up to 2 s longer.
+- `raN` (`7682a4d`) judges an active allowed flow again in the background once its
+  verdict is N seconds old, while it is still valid. Nothing waits and nothing passes on a
+  verdict older than `cacheTTL`, and a socket that takes over the 5-tuple is denied about N
+  seconds after the lookup it inherited instead of up to `cacheTTL`. With `ra2`: 0.41% and
+  0.22%, the rhythm gone, one background lookup every 2–3 s for the active flow, at most
+  6 ms each; the one burst of 16 lost in a run fell in a 5 s window where the counters show
+  no drop at all. The cached-UDP path costs the same within noise (shuffled benchmarks,
+  `BenchmarkExpCachedUDP*`).
+
+Holding more packets per flow keeps the rule that nothing passes without a fresh verdict
+but stalls the flow for the lookup and still drops under load.
+
+**How to spot it:** loss on long-lived UDP flows in strict mode, in bursts about 10 s
+apart. The `exp/lab` build logs `udp_expired_rejudged` and `drop_held_cap` under the tag
+`AmneziaWG/uidfilter`.
+
+**Portable:** yes — any verdict cache with a TTL in front of a per-flow hold with a cap
+
+## G21. A burst that opens a UDP flow keeps only its first four packets
+
+**Context:** device measurements with the experimental build, 2026-09-28
+(`tools/udp_flow_probe.py`, counters of the fork's `exp/lab`).
+
+**Symptom:** a new UDP socket in a listed app sends 20 datagrams back to back: 4 arrive,
+16 are lost, in 3 of 3 runs. Every run of the long-flow probe loses the same 16 in its
+first second, whatever the options. With 16 packets held per flow the loss is 4 of 20,
+also 3 of 3 (`evidence/research-2026-09-28/m8-first-burst.txt`).
+
+**Cause:** the first packet of a flow waits for its owner lookup, 2–5 ms on this phone,
+and only `maxHeldPerFlow` (4) packets are held meanwhile; the rest are dropped
+(`drop_held_cap`). The cap was chosen for a SYN and its retransmit or a DNS query and its
+retry. A sender that puts more than four datagrams on a new flow before its first answer
+loses the tail and waits for its own retransmit timer.
+
+**Fix:** open. Raising the cap costs memory only inside the existing 1 MiB bound per
+device, and packets older than `maxHoldTime` are dropped anyway. `exp/lab` takes the cap
+from its `hN` option.
+
+**How to spot it:** loss only at the start of UDP flows, never later; `drop_held_cap` in
+the first report after a flow opens.
+
+**Portable:** yes — any per-flow hold with a packet cap in front of a slow verdict
+
+## G22. A connection into a listed app through the tunnel never completes in include mode
+
+**Context:** device measurements with the experimental build, 2026-09-28. The PC is
+another peer of the same server (10.8.1.2) and connects to a listener in the phone's
+Termux (10.8.1.8).
+
+**Symptom:** "only listed apps" mode, Termux listed, strict on: 0 of 5 connects, in 2 of 2
+runs; the listener never sees them. With the filter removed, 5 of 5. Every SYN-ACK the phone
+sends is denied, retransmits included: 27 judged for 5 connects
+(`evidence/research-2026-09-28/m3-inbound.txt`, `ctl-strictOFF.txt`).
+
+**Cause:** the AmneziaWG hook judges every TCP packet with SYN set, and a SYN-ACK has it.
+The platform is asked about the connection's 5-tuple, which at that point belongs to a
+request socket, and the kernel reports request sockets with uid 0 (`inet_req_diag_fill`,
+kernel v6.6). In include mode uid 0 is outside the VPN, the answer is
+`INVALID_UID` ([[G08]]), and the SYN-ACK is dropped ([[A03]]). In exclude mode uid 0 is
+inside and the SYN-ACK passes. An excluded app cannot use that to accept connections
+through the tunnel: Android routes its SYN-ACK away from `tun0`, with the filter or
+without it, and the filter never sees one (`m9-inbound-exclude.txt`).
+
+**Fix:** open. The `sa` prototype on `exp/lab` asks about the listener instead, the same
+local address with an unspecified remote, which the kernel's exact lookup resolves to the
+listening socket — owned by the app that will get the connection. 5 of 5, in 2 of 2 runs.
+A SYN-ACK from a connecting socket, in TCP simultaneous open, is then denied: it has no
+listener.
+
+**How to spot it:** inbound connections through the tunnel fail only in include mode with
+strict on; `synack_judged` grows in the experimental build.
+
+**Portable:** yes — any filter that asks the platform for the owner of a SYN-ACK
+
+## G23. A UDP datagram larger than the tunnel MTU never leaves, even from an allowed app
+
+**Context:** device measurements with the experimental build, 2026-09-28. The tunnel MTU
+is 1280.
+
+**Symptom:** a listed Termux sends 1400-byte DNS queries to 9.9.9.9: none of 20 answered,
+in 2 of 2 runs. The same queries at 1200 bytes: 20 of 20. With the `frag` prototype the
+1400-byte ones got 16 and 20 of 20 (`evidence/research-2026-09-28/m2-fragments-quad9.txt`).
+1.1.1.1 and 8.8.8.8 are no use for this test: they stopped answering padded queries
+somewhere between 400 and 700 bytes even unfragmented (`m2-fragments.txt`).
+
+**Cause:** the kernel fragments a datagram larger than the MTU before it reaches `tun0`,
+and the filter drops IPv4 fragments as packets it cannot attribute ([[G11]], [[A03]]): only
+the first fragment carries the ports. The counters show two `unattr_frag` per datagram.
+
+**Fix:** open. The `frag` prototype on `exp/lab` judges the first fragment like any
+packet of its flow, and lets the later fragments with the same source, destination,
+protocol and identification follow it for `maxHoldTime`; a later fragment whose first
+one was not seen is still dropped. An app cannot choose the identification, and
+fragments without their first one cannot be reassembled, so this gives an excluded app
+nothing. IPv6 fragments are not handled by it.
+
+**How to spot it:** an app works with small datagrams and fails with large ones;
+`unattr_frag` grows in the experimental build.
+
+**Portable:** yes — any fail-closed filter that needs ports to decide
+
+## G24. The VPN service dies when the filter's workers exit, and leaves no tombstone
+
+**Context:** device runs with the experimental build, 2026-09-28: a reconnect sent from adb,
+then the filter removed and put back in a running tunnel, over and over.
+
+**Symptom:** `Process … exited due to signal 11 (Segmentation fault)` for the service
+process, 28–97 ms after the filter is removed (`Set(nil)`). No backtrace in logcat, and
+`/data/tombstones` is not touched. Three times: on a reconnect; once in 100 toggles under
+a stream of 500 denied flows/s, and never in 60 toggles without it; on the first toggle
+after a flood of 5000 flows/s.
+
+**Cause:** each worker was locked to its OS thread (`runtime.LockOSThread`). A locked
+goroutine that exits takes its thread with it, and before handing the thread back to
+pthread Go blocks every signal except 32–34 (`sigblock(true)` in `runtime.mexit`,
+`sigsetAllExiting` in `signal_unix.go`). The thread's pthread key destructor then detaches
+it from the JVM ([[A09]]), with SIGSEGV still blocked. If the JVM faults on that path — as
+ART does by design and handles itself, for instance in an implicit suspend check while a
+GC waits — the blocked signal kills the process with the default action, and debuggerd
+never runs. The ART side is inferred from the symptom, not read in its source. It takes a
+JVM suspend request during the detach, so the more Java work the service does, the more
+often it happens. Workers exit whenever the filter is replaced or removed: on every
+disconnect, every reconnect (a network change included, which calls `turnOffVpn`), and
+every strict toggle.
+
+**Fix:** `342f9ec` on the fork's `exp/lab`: workers are not locked. When one exits its
+thread goes back to the Go scheduler and stays attached, so no thread is ever detached with
+signals blocked. Checked on the phone with 32 workers and a steady 3000 flows/s: 0 deaths in
+300 toggles, against 1 in 60 without the fix under the same load
+(`evidence/research-2026-09-28/m12-crash.txt`). The lock has been in `work()` since the
+off-reader rework ([[G15]]), so it is in amneziawg-go#199, in the released test build `v5.0.3.1-strict.3` (recipe
+`strict.5`) and in the unreleased recipe `strict.6` build.
+
+**How to spot it:** signal 11 of the VPN service process right after a disconnect, a
+reconnect or a strict toggle, and no tombstone. In code: a goroutine that calls into Java,
+is locked to its thread, and can exit.
+
+**Portable:** yes — any cgo library that attaches Go threads to the JVM and detaches them
+in a thread-exit destructor
+
+## G25. A build with another applicationId never finds its own running VPN service
+
+**Context:** the side-by-side experimental build `org.amnezia.vpn.exp`, 2026-09-28.
+
+**Symptom:** with the tunnel up, the app is swiped away from recents; reopened, it shows
+the tunnel as off and its connect button does nothing, while the VPN keeps running.
+
+**Cause:** `VpnProto` names the service processes `org.amnezia.vpn:amneziaAwgService` and
+so on, and `AmneziaVpnService.isRunning` compares that with the process names
+`ActivityManager` reports, which carry the real applicationId
+(`org.amnezia.vpn.exp:amneziaAwgService`). The check fails, and the reopened activity never
+binds to the service. Upstream ships one applicationId and does not have this.
+
+**Fix:** compare the package name plus the suffix: first on the local `exp/lab`
+(`ae9eaf3a`), since 2026-09-30 on `feat` with the side-by-side identity (`17434ae5`, [[A11]]).
+
+**How to spot it:** any build with a changed applicationId; `processName` in `VpnProto.kt`.

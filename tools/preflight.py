@@ -5,6 +5,9 @@
   On `feat/*` branches it is how the recipes build, so there it is allowed.
 - G06: in amneziawg-go the tunnel hook must sit right after `elem.padding = padding`.
   A rebase can put it one line higher, and that still compiles.
+- A11: in amnezia-client the test build installs next to the store app under its own
+  applicationId, label and FileProvider authority. A `pr/*` branch must keep upstream's.
+- A12: the adb control of fork builds (AdbControl.kt) must never reach a `pr/*` branch.
 
     python tools/preflight.py              # every local feat/* and pr/* branch of the forks
     python tools/preflight.py --install    # add the pre-push hook to all five forks
@@ -29,8 +32,15 @@ REPLACE = re.compile(r"=>\s*(\S+)")
 HOOK = "uidGate.AllowOutboundPacket("
 ANCHOR = "elem.padding = padding"
 
+# amnezia-client files and the upstream identity they must carry on a pr/* branch (A11)
+IDENTITY = [
+    ("client/android/build.gradle.kts", 'applicationId = "org.amnezia.vpn"'),
+    ("client/android/AndroidManifest.xml", 'android:label="-- %%INSERT_APP_NAME%% --"'),
+    ("client/android/AndroidManifest.xml", 'android:authorities="org.amnezia.vpn.qtprovider"'),
+]
+
 HOOK_SCRIPT = """#!/bin/sh
-# Installed by tools/preflight.py --install in the umbrella repo. See G04 and G06.
+# Installed by tools/preflight.py --install in the umbrella repo. See G04, G06 and A11.
 exec python "$(git rev-parse --show-toplevel)/../tools/preflight.py" --pre-push
 """
 
@@ -76,10 +86,25 @@ def bad_hook(repo, commit):
     return []
 
 
+ADB_CONTROL = "client/android/src/org/amnezia/vpn/AdbControl.kt"
+
+
+def bad_identity(repo, commit):
+    found = []
+    if ADB_CONTROL in git(repo, "ls-tree", "-r", "--name-only", commit).splitlines():
+        found.append(f"{ADB_CONTROL}: the adb control is fork-only  (A12)")
+    for path, line in IDENTITY:
+        if line not in git(repo, "show", f"{commit}:{path}"):
+            found.append(f"{path}: expected `{line}`: the side-by-side identity is fork-only  (A11)")
+    return found
+
+
 def check(repo, commit, branch):
     problems = []
     if branch.startswith("pr/"):
         problems += bad_replaces(repo, commit)
+        if os.path.basename(os.path.abspath(repo)) == "amnezia-client":
+            problems += bad_identity(repo, commit)
     if os.path.basename(os.path.abspath(repo)) == "amneziawg-go":
         problems += bad_hook(repo, commit)
     return problems

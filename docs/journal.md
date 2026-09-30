@@ -5,6 +5,10 @@ registers and is not restated here. `git log` in each fork has what changed line
 
 ## Index
 
+- **2026-10-01** — strict.7 released, next to the store app, with the crash fix
+- **2026-09-28** — a study of how to improve the filter found a crash in our own bridge
+- **2026-09-28** — writing two articles found a flaw in two other clients and one in ours
+- **2026-09-27** — a survey of other clients, after a machine summary got half of them wrong
 - **2026-09-26** — a warm-up PR, and why a Private DNS warning is not a one-liner
 - **2026-09-26** — two rebase traps now refuse the push instead of relying on a reader
 - **2026-09-25** — strict.3 released: the reworked filter, for anyone who installed strict.2
@@ -26,6 +30,119 @@ registers and is not restated here. `git log` in each fork has what changed line
 - **2026-09-16** — rebased all four branches onto current upstream
 - **2026-07-26** — forks confirmed as the only surviving copy
 - **2026-07-01** — filter implemented on both datapaths
+
+## 2026-10-01 — strict.7 released, next to the store app, with the crash fix
+
+The fixes of the study went out as the user chose: four commits on the amneziawg-go#199
+branch (the crash, the refresh before expiry, 16 held packets, the queue reference), and
+two more on follow-up branches linked from the new "Known limitations" section of its
+description, since a PR that grows is a PR nobody reads. The user expects the maintainers
+to write their own fix at best, so the value of the branches is as a reference and a list
+of traps, not a merge.
+
+Two things changed how test builds work. The build that replaced the store app kept
+testers away, so `feat` now builds `org.amnezia.vpn.strict` next to it ([[A11]]). And the
+research showed that taps cost more than they are worth, so the adb control moved from the
+experimental build into `feat` ([[A12]]); the counters and the live filter switch stayed
+behind, to keep the filter code of a release identical to the PR. `tools/preflight.py`
+refuses both on a `pr/*` branch. Release numbers had drifted from the recipe numbers they
+were built on, and our own texts mixed them up ("strict.3–6"); from strict.7 a release
+takes the recipe's number ([[A07]]).
+
+The first build of the release failed in two minutes and printed DONE anyway. From WSL,
+HTTPS to conan, the Go proxy and Google stalled while HTTP worked: a path MTU black hole
+through the Windows VPN, the third network trap of WSL here (environment store). The build
+script now checks the hosts first and never hands out an apk older than its own start.
+
+strict.7 (`28abcddc`, sha256 `e000a327…`) was checked as the published file, next to the
+store app: nothing through `tun0` with the switch on, everything with it off, eleven
+reconnects from adb without a crash. Published: the #199 branch and description, the
+release, comments on #199 and #2457, and the first #2457 comment now links strict.7.
+`references/device-testing.md` collects how all of this is done on the phone.
+
+Decisions: [[A11]], [[A12]]; [[A07]], [[A08]] amended · Gotchas: [[G25]] amended
+Status: Working · strict.7 released
+Next: waiting — on the maintainers and on testers of strict.7
+
+## 2026-09-28 — a study of how to improve the filter found a crash in our own bridge
+
+The user asked for the fullest study of how the filter could be better, every hypothesis
+run where it could be. A side-by-side build, `org.amnezia.vpn.exp`, carried switchable
+prototypes and counters. Driving it by taps cost screenshots, so at the user's suggestion it
+learned to take commands from adb (`tools/awgctl.sh`), including taking the filter out of a
+running tunnel. That made "no filter" a control run in the same tunnel.
+
+Every finding was measured three ways: as the PR has it, with a prototype, and with no
+filter. Four limits of the PR code showed on the phone: loss at each verdict expiry (G20),
+a new flow's first burst (G21), inbound connections in include mode (G22) and fragmented
+UDP (G23). A new prototype, refresh-ahead (`raN`), cured G20 without ever passing a packet
+on an expired verdict, which the older `rv` could not. All prototypes at once still let
+nothing through from an excluded app. A bypass the code suggested, inbound connections to
+an excluded app, turned out to be stopped by Android's routing before the filter. So did
+the idea that more workers would help under a flood: the filter dropped nothing there.
+
+The largest finding was not on the list. A reconnect sent from adb killed the service with
+SIGSEGV, and there was no tombstone to read. It was cornered by timing and by Go's source.
+It came tens of milliseconds after the filter was removed, when the workers exit. Go blocks
+every signal on a thread it is ending, and the JNI bridge detaches that very thread from
+the JVM. Toggling the filter under load reproduced it; not locking the workers fixed it,
+0 in 300 against 1 in 60 (G24). The lock is in #199 and in the released test builds.
+Report with the proposed order of work: `evidence/research-2026-09-28/REPORT.md`.
+
+Gotchas: [[G21]]–[[G25]]; [[G11]], [[G17]], [[G19]], [[G20]] amended · Decisions: [[A09]] revised
+Status: Known issues — G20–G24, fixes on `exp/lab`
+Next: the user's choice of fixes for #199, first G24; a test release with it
+
+## 2026-09-28 — writing two articles found a flaw in two other clients and one in ours
+
+The user asked for two Habr articles, a survey of how clients handled the leak and a
+deep dive into our fix, in Russian first and in English afterwards. Drafts, notes and
+illustrations live in `articles/`. The style rules and a checker went into a personal
+skill (`tech-article-style`), built from Habr articles written before ChatGPT.
+
+Checking the survey against source code changed its point. TeapodStream and OlConnect
+both ask the platform for the owner, and both let `INVALID_UID` through: TeapodStream in
+"all except selected" mode, OlConnect always ([[G08]]). Neither was run on a device. The
+user chose to tell the authors privately before the survey is published. OlConnect has no
+private channel, so a detail-free issue (Oleglog/OlConnect#3) asks the author to turn on
+private vulnerability reporting. The TeapodStream author has a public e-mail, and the
+user sends that one. Drafts are in `articles/notes/disclosure-drafts.md`.
+
+An architect review of the deep dive against the code found that our own cache drops
+allowed UDP verdicts when an app floods it ([[G19]]). G15 had said allowed flows never
+suffer. That is true for established TCP only, and G15 is corrected. The review also
+restored the mode caveat of `ip route get` in [[A01]] and narrowed "traceroute" in
+[[G11]] to its ICMP form. The article states G19 as a limitation. The code fix is left
+to the user, since it adds a commit to #199 while it is under review.
+
+Gotchas: [[G19]]; [[G11]], [[G15]] corrected · Decisions: [[A01]] amended
+Later the same night G19 was fixed (`0f0382e`, on the PR branch as `2a9f1f1`) and checked
+on the phone after three failed builds. Those were not the code: WSL was stopped by the
+Windows commit limit (environment store, EG72), and a memory cap in `.wslconfig` cured it.
+`churn_probe` learned to run from Termux, where the linker shifts its arguments, so the
+denied flood could come from an excluded app. The published notes stay at G18 until the
+two authors reply, and a pre-push hook in the clone enforces it.
+
+Status: Working · G19 fixed and verified
+Next: the authors' replies, then the survey can be published; the English versions
+
+## 2026-09-27 — a survey of other clients, after a machine summary got half of them wrong
+
+The user brought an AI-written overview of the leak. Its mechanics were right and its
+sources were not: a Karing link led to an unrelated issue, and the Amnezia row described
+our unmerged series as shipped upstream. It also added a SOCKS rework nobody did. Four
+research agents then covered Xray and sing-box clients, WireGuard and commercial clients
+with AOSP, Russian sources, and Chinese and Persian ones. Where two of them disagreed
+(sing-box's answer to #4009, OlConnect), the primary page settled it.
+
+The picture: two other projects filter by owner (TeapodStream, OlConnect). sing-box can
+block an unknown owner only through a hand-written rule, and v2rayNG closed the same repro
+as not planned. Nobody else, Google included, has said anything. The survey went out as a
+comment on #2457, linked from the #199 body, so a maintainer asking about alternatives
+finds it there. Details are in [upstream-watch.md](references/upstream-watch.md).
+
+Status: Working · survey posted
+Next: waiting — on the maintainers; the user's choice on the Private DNS warning
 
 ## 2026-09-26 — a warm-up PR, and why a Private DNS warning is not a one-liner
 
@@ -83,8 +200,14 @@ the one installed for the check (sha256 `0479e16d…`, the digest GitHub reports
 The announcement on #2457 also mentions amnezia-client#3214. It is a different channel
 to the same server address, found by the same reviewer.
 
+Later that evening the reviewer's account started returning 404 on GitHub. Their reviews,
+comments and #3214 vanished with it, while our replies to them stayed. Local copies are in
+`evidence/izhddm-2026-09-25/`. Nothing in the code depends on them: every change was
+measured on our own phone as well.
+
 Status: Working
-Next: waiting — on the maintainers, and on anyone who tries strict.3
+Next: waiting — on the maintainers, on anyone who tries strict.3, and on whether the
+reviewer's posts come back
 
 ## 2026-09-25 — a second review: the lookup leaves the tun reader, measured on the phone
 

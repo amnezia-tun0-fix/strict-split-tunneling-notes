@@ -25,6 +25,7 @@ see [method-delta.md](method-delta.md) for why.
 | [architecture.md](architecture.md) | `A##` — settled decisions |
 | [conventions.md](conventions.md) | Writing code destined for someone else's PR |
 | [references/upstream-watch.md](references/upstream-watch.md) | What upstream did, and what it cost us |
+| [references/device-testing.md](references/device-testing.md) | Checks on the phone: builds, adb control, Termux, probes, method |
 | [_meta.md](_meta.md) | Where the rules for these documents live |
 
 ## What to read when
@@ -46,6 +47,12 @@ see [method-delta.md](method-delta.md) for why.
 - **Trying to build an `.aar` or the app** → [[G04]]: a path-shaped `replace` never
   reaches the conan build; then [[A07]] for the pins and [[A08]] for the APK.
 - **Adding or changing a setting** → [[A05]]; mirror the `killSwitch` chain exactly.
+- **Building, installing or releasing a test build** → [[A08]] for signing, [[A11]] for why
+  it is `org.amnezia.vpn.strict` next to the store app, and [[A07]] for how release numbers
+  follow the recipe.
+- **Anything on the phone: a check, a probe, a measurement** →
+  [references/device-testing.md](references/device-testing.md) first: the three builds, driving
+  them from adb ([[A12]]), Termux over SSH, which probe answers what, how to make a run count.
 - **Wondering why something is denied** → [[G08]] first (`INVALID_UID` is mostly "not
   under our VPN"), [[A03]] for the fail-closed rule, [[G03]] for why Go cannot resolve it.
 - **Writing into these documents** → `RULES.md` of the standard, via [_meta.md](_meta.md).

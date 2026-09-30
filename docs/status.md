@@ -1,6 +1,6 @@
 # Status
 
-**Updated:** 2026-09-26
+**Updated:** 2026-10-01
 
 State only — reasons in [architecture.md](architecture.md) and [gotchas.md](gotchas.md),
 history in [journal.md](journal.md).
@@ -25,16 +25,10 @@ history in [journal.md](journal.md).
   - state is per device, and `Set` swaps it in one step;
   - the JNI lock no longer spans the call, and the guard lost its cache and its retry.
 
-  Measured with `tools/churn_probe`: at up to 5000 new flows/s, TCP connects kept a p50 of
-  about 200 ms, as with the filter off; `strict.2` reached 1.1 s at 1000/s. Leak probes
-  from an excluded app: 0/6 on, 6/6 off, ICMP via `tun0` timed out and answered
-  respectively; in include mode 0/6 with strict on, and browsing worked. No JNI errors. Working
-  branches at `cdee4ba`, `38e28430`, `cec802df` (recipe `strict.5`). Published
-  2026-09-25: the PR branches as new commits (`5864fd3`, `94c30d75`, `4d00910f`, no
-  force-push), the three PR texts updated, and a reply to @izhddm on #199 with the numbers.
-  Released as `v5.0.3.1-strict.3` (tag on `3e9a6978`, sha256 `0479e16d…`) after its
-  own device check: 0/6 on in both modes, 6/6 off, 1000 flows/s at a p50 of about 200 ms.
-  Announced on #2457, and the first comment there now links strict.3.
+  Measured with `tools/churn_probe`: up to 5000 new flows/s, TCP connects keep a p50 of
+  about 200 ms, as with the filter off; leak probes 0/6 on, 6/6 off, in both modes. Working
+  branches at `0f0382e`, `4ac9414e`, `642a957f` (recipe `strict.6`, [[G19]]); the PR
+  branches got them as new commits. Released as `v5.0.3.1-strict.3` (`3e9a6978`).
 - **Xray path, built but not run.** `filter` in `amnezia-tun2socks`, `RegisterUidFilter` in
   `amnezia-libxray`, registration in `Xray.kt`. Go tests pass.
 - **Kotlin and settings** (`amnezia-client`): `StrictSplitTunnelGuard.createOrNull` is shared
@@ -42,8 +36,9 @@ history in [journal.md](journal.md).
   the split-tunnelling drawer and Settings → Connection, enabled only for AmneziaWG/WireGuard
   and while disconnected ([[A05]]).
 - **Build pipeline.** Recipes build `amnezia-libxray` (`1.0.3-strict.1`) and `awg-android`
-  (`3.1.20260814-strict.5`) from our forks, pinned by commit ([[A07]]); `deploy/build.sh`
-  under WSL signs with the debug key ([[A08]]). Check the artefact, not the log.
+  (`3.1.20260814-strict.7`) from our forks, pinned by commit; a test release now takes the
+  recipe's number ([[A07]]). `deploy/build.sh` under WSL signs with the debug key ([[A08]]).
+  Check the artefact, not the log.
 - **Working branches** `feat/strict-tunnel-isolation` in all five forks build the APK;
   `amnezia-client` rebased onto `dev` 2026-09-23. `amneziawg-android` stays on
   `v3.1.20260814` so its recipe pin keeps resolving.
@@ -51,12 +46,26 @@ history in [journal.md](journal.md).
   (filter), amneziawg-android#104 (bridge), amnezia-client#3199 (setting), plus a comment on
   issue #2457. Each PR needs the previous one released. Texts as sent: `pr-drafts/`.
   Since 2026-09-26 #3199 says "Addresses #2457", so merging it leaves the issue open for Xray.
+- **Experimental, not yet on a device:** `feat/private-dns-warning` in `amnezia-client`: at
+  connect with Private DNS by hostname in include mode ([[A10]]), nothing, a notification, or
+  no connection with error code 1001 ([[G18]]). One of the two is to be cut after trying both.
+- **Related-work survey posted 2026-09-27** on #2457, and linked from a new section of the
+  amneziawg-go#199 body: who else closes the `tun0` leak and who declined to. Text:
+  `pr-drafts/16-*`, sources in `references/upstream-watch.md`.
 - **Submitted 2026-09-26, independent of the series:** amneziawg-android#105. The Makefile's
   `-X` flag lacked `/v3`, so the UAPI socket never opened on Android.
 - **Published notes:** `github.com/amnezia-tun0-fix/strict-split-tunneling-notes` — these
-  documents, the probes and the screenshots, linked from the PRs.
-- **Test build** `v5.0.3.1-strict.1` in the `amnezia-client` fork's releases: tag on
-  `8bf9b552`, signed with our own key, verified after a clean install — 0/6 on, 6/6 off.
+  documents, the probes and the screenshots, linked from the PRs. The embargo on the flaws
+  told privately to TeapodStream and OlConnect was lifted by the user on 2026-09-28, and
+  its pre-push hook removed: every document may be synced.
+- **Articles, Russian drafts done 2026-09-28** in `articles/`: a survey and a deep dive.
+  The user publishes them.
+- **Test builds install next to the store app** since 2026-09-30, as
+  `org.amnezia.vpn.strict` «AmneziaVPN Strict» ([[A11]]), and take commands from adb
+  ([[A12]]). Released as `v5.0.3.1-strict.7` 2026-10-01 (tag on `28abcddc`, sha256
+  `e000a327…`), linked from #2457; strict.3 is superseded (it has [[G24]]). Research builds: `exp/lab` in the forks (client local), `org.amnezia.vpn.exp`.
+  How to run anything on the phone: `references/device-testing.md`. Findings of 2026-09-28:
+  `evidence/research-2026-09-28/REPORT.md`.
 - **Cloned apps in include mode** work since `9ce688c4` (PR #3199: `9663133a`): the guard
   matches app ids, not uids ([[G13]]). Verified 2026-09-24 on XSpace clones of two browsers;
   probe 0/6 on, 6/6 off. Released as `v5.0.3.1-strict.2` (tag on `9ce688c4`).
@@ -89,16 +98,23 @@ history in [journal.md](journal.md).
 
 ## Known issues
 
-None open.
+Found 2026-09-28, all on the PR branch, fixes prototyped on `exp/lab`:
+- [[G24]] — the VPN service can die (SIGSEGV) when the filter's workers exit: every
+  disconnect, reconnect and toggle. In #199 and release strict.3. Fix `342f9ec`.
+- [[G20]], [[G21]] — UDP loss at every verdict expiry and in a new flow's first burst;
+  [[G22]], [[G23]] — inbound connections in include mode, UDP datagrams over the MTU.
 
 ## Blocked
 
 - **On-device verification of the Xray path.** Xray does not connect from Russia at all (the
   same key fails in the store build), and a leak test needs a working tunnel.
+- **IPv6 through the tunnel.** Untested ([[A01]]): our AmneziaWG server has IPv4 only, so
+  the tunnel carries no IPv6. Needs a server with an IPv6 address.
 
 ## Deferred
 
 - **Translations beyond Russian.** The new UI strings exist only in the Russian catalogue
   until someone runs `lupdate`.
+- **English versions of the two articles.** Postponed by the user, to do at any time.
 - **The Xray path.** Not submitted: it cannot be run on a device from here. The branches are
   linked from amnezia-client#3199 for anyone who can test them.
