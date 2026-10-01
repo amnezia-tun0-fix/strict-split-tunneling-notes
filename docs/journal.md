@@ -5,6 +5,7 @@ registers and is not restated here. `git log` in each fork has what changed line
 
 ## Index
 
+- **2026-10-02** — the fork branches become layers, so the lab build measures release code
 - **2026-10-01** — strict.7 released, next to the store app, with the crash fix
 - **2026-09-28** — a study of how to improve the filter found a crash in our own bridge
 - **2026-09-28** — writing two articles found a flaw in two other clients and one in ours
@@ -30,6 +31,36 @@ registers and is not restated here. `git log` in each fork has what changed line
 - **2026-09-16** — rebased all four branches onto current upstream
 - **2026-07-26** — forks confirmed as the only surviving copy
 - **2026-07-01** — filter implemented on both datapaths
+
+## 2026-10-02 — the fork branches become layers, so the lab build measures release code
+
+@makekryl answered on #199 that the verdict cache could be a plain FIFO without expiry,
+and the user wanted the reply backed by a large comparison on the phone. Planning it showed
+that the lab build could not carry it: `exp/lab` held prototypes of fixes whose final form
+was already in the PR, and `feat` repeated the PR's commits under other hashes. Three
+parallel histories per fork, kept in step by hand.
+
+At the user's request the branches were put in order first ([[A13]]). `release` and `lab`
+are rebuilt as layers on `pr`; the old ones are kept under `archive/*` tags. The check of the
+rebuild was the tree, not the log: `release` of amneziawg-go is byte-identical to the old
+`feat`, and the other two differ only in pins. amneziawg-android's `release` now sits on
+upstream `master` like its `pr`, three commits the recipe does not build. The lab
+instruments were carried onto the release code; the prototypes that became release code
+were left behind. `preflight.py` now refuses a push that breaks the order, and the first
+change made under the new scheme, the short launcher labels the user asked for
+(«strct-AmnzVPN», «lab-strct-AmnzVPN»), went through it: a commit on `release`, `lab`
+rebased on top.
+
+On the phone the lab build gave the usual answer, 0/6 with the filter and 6/6 with it
+removed live (`evidence/branches-2026-10-02/`). It also showed that an adb `reconnect` can
+stop the service it has just restarted; the code is release's, so strict.7 has it too.
+
+While updating the documents, G20–G25 still said "Fix: open" two days after the fixes
+went into #199; corrected.
+
+Decisions: [[A13]]; [[A07]], [[A09]], [[A11]], [[A12]] amended · Gotchas: [[G20]]–[[G25]] amended
+Status: Working · known issue: adb reconnect
+Next: the cache comparison for the reply to @makekryl, on the lab build
 
 ## 2026-10-01 — strict.7 released, next to the store app, with the crash fix
 

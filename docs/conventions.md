@@ -61,8 +61,12 @@ change.
 - **Before a commit:** confirm the branch's diff against its *base* contains only the
   intended files. After a rebase this is the check that catches upstream hunks dragged in
   while resolving conflicts.
-- **Branches:** `feat/strict-tunnel-isolation` in every fork, plus a `…-prerebase` backup
-  before any rebase. Push with `--force-with-lease`, never plain `--force`.
+- **Branches:** layers, each built on the one below ([[A13]]): `pr/strict-split-tunneling` →
+  `followup/*` and `release` → `lab`. A fix is made once, on `pr`; then `release` and `lab`
+  are rebased onto it in that order (`git rebase --onto pr <old pr> release`) and their pins
+  updated ([[A07]]). `tools/preflight.py` refuses a push that breaks the order. Before a risky
+  rebase, tag the old head `archive/…` rather than keeping a backup branch. The Xray forks
+  keep `feat/strict-tunnel-isolation`. Push with `--force-with-lease`, never plain `--force`.
 - **Rebase, do not merge.** The PR should be a short line of deliberate commits.
 - **Files to touch carefully:** `amneziawg-go/device/send.go` — the hook sits in a gap
   upstream writes into ([[G06]]). `amnezia-libxray/go.mod` — the `replace` is

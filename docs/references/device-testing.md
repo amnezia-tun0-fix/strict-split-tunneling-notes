@@ -11,24 +11,28 @@ from here instead of rediscovering it.
 | App | Package | Built from | What it is for |
 |---|---|---|---|
 | AmneziaVPN | `org.amnezia.vpn` | the store | the user's daily VPN; not ours to touch |
-| AmneziaVPN Strict | `org.amnezia.vpn.strict` | `feat/strict-tunnel-isolation` of all five forks | test releases `v5.0.3.1-strict.N` ([[A11]]); PR code plus the follow-up branches plus adb control ([[A12]]) |
-| AmneziaVPN exp | `org.amnezia.vpn.exp` | `exp/lab` of amneziawg-go and amneziawg-android (pushed) and of amnezia-client (local only) | research: switchable prototypes, counters, a live filter switch |
+| strct-AmnzVPN | `org.amnezia.vpn.strict` | `release` of amneziawg-go, amneziawg-android, amnezia-client; `feat/strict-tunnel-isolation` of the Xray forks | test releases `v5.0.3.1-strict.N` ([[A11]]); PR code plus the follow-up branches plus adb control ([[A12]]) |
+| lab-strct-AmnzVPN | `org.amnezia.vpn.exp` | `lab` of the same three forks | measurements: release code plus counters, switches, a live filter switch |
+
+Branches are layers, each built on the one below: `pr/strict-split-tunneling` → `release` →
+`lab` ([[A13]]). A lab build therefore runs exactly the released filter, plus instruments.
+The lab app keeps the old `.exp` applicationId so it updates in place.
 
 They install next to each other, and Android runs one VPN at a time: connecting one drops
 the other. Each keeps its own servers and keys; the user imports a key into a new app.
 
 - **Test release:** the user runs `bash -l ~/build_release.sh` in WSL (asks for the keystore
-  password; builds `origin/feat/strict-tunnel-isolation`, about 15 minutes; the APK lands in
+  password; builds `origin/release`, about 15 minutes; the APK lands in
   `~/AmneziaVPN-strict-split-tunneling-arm64-v8a.apk`). Nothing else runs in WSL meanwhile.
   A release takes the number of the `awg-android` recipe it is built on ([[A07]]).
-- **Experimental build:** `bash tools/build_exp.sh exp/lab <out-dir>` in WSL, debug key,
+- **Lab build:** `bash tools/build_exp.sh lab <out-dir>` in WSL, debug key,
   about 6 minutes, 15 when `awg-android` changes. A change in amneziawg-go travels as in
-  [[A07]]: commit and push `exp/lab` → pseudo-version in `libwg-go/go.mod` of amneziawg-android
-  `exp/lab` (`go.sum` via `GOPROXY=direct GOSUMDB=off GOFLAGS=-mod=mod go mod download
+  [[A07]]: commit and push `lab` → pseudo-version in `libwg-go/go.mod` of amneziawg-android
+  `lab` (`go.sum` via `GOPROXY=direct GOSUMDB=off GOFLAGS=-mod=mod go mod download
   github.com/amnezia-vpn/amneziawg-go/v3`) → `_commit` and `version` (`…-strict.expN`) in
   `recipes/awg-android/conanfile.py` and the root `conanfile.py` of the client.
 - **Check the artefact, not the log:** `unzip -p <apk> lib/arm64-v8a/libwg-go.so | grep -a -c
-  <sha12 of the amneziawg-go commit>`; for the exp build also `uidfilter-exp-v1`.
+  <sha12 of the amneziawg-go commit>`; for the lab build also `uidfilter-exp-v1`.
 - **Install:** `adb install --user 0 -r <apk>`. HyperOS asks on the screen: the phone must be
   unlocked and the user taps «Установить»; with the screen off the install is cancelled at
   once.
@@ -42,7 +46,7 @@ the other. Each keeps its own servers and keys; the user imports a key into a ne
 tools/awgctl.sh "cmd=status"
 tools/awgctl.sh "cmd=reconnect mode=include add=com.termux strict=1"
 tools/awgctl.sh "cmd=disconnect"
-AWG_PKG=org.amnezia.vpn.exp tools/awgctl.sh strict 0     # exp only: remove the filter live
+AWG_PKG=org.amnezia.vpn.exp tools/awgctl.sh strict 0     # lab only: remove the filter live
 ```
 
 - The command changes the config the service saved last and saves it on connect. The app's
@@ -51,10 +55,11 @@ AWG_PKG=org.amnezia.vpn.exp tools/awgctl.sh strict 0     # exp only: remove the 
 - The screen must be on: `am start` brings the app to the front.
 - Set `ANDROID_SERIAL` (or `adb -s`) when adb lists the phone twice, by address and by mDNS.
 
-The exp build adds, through system properties read once a second:
-- `debug.awg.uf` — prototypes and knobs, comma-separated: `rv`, `raN`, `sa`, `icmp`, `frag`,
-  `wN` (workers, taken when the filter is installed), `hN` (packets held per flow). Empty is
-  the PR behaviour.
+The lab build adds, through system properties read once a second:
+- `debug.awg.uf` — knobs, comma-separated: `icmp` (pass ICMP only the kernel sends), `wN`
+  (workers, taken when the filter is installed), `hN` (packets held per flow). Empty is the
+  release behaviour. The prototypes of the former `exp/lab` (`rv`, `raN`, `sa`, `frag`) are
+  release code now or dropped; their names are ignored.
 - `debug.awg.strict=0|1` — removes or restores the filter in the running tunnel; the only way
   to toggle it hundreds of times (the [[G24]] stress runs).
 - Counters every 5 s under the logcat tag `AmneziaWG/uidfilter`, lines starting
@@ -99,7 +104,7 @@ copy of `churn_probe` lives in `/data/local/tmp`.
 
 ## Making a run trustworthy
 
-- A control for every claim: the same probe with the filter removed (exp: `debug.awg.strict=0`;
+- A control for every claim: the same probe with the filter removed (lab: `debug.awg.strict=0`;
   release: `reconnect strict=0`), and where a prototype is compared, with the option on and
   off.
 - ABBA order, at least two runs per variant, and say so when a result comes from one run.

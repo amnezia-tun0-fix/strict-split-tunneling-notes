@@ -53,8 +53,9 @@ AmneziaVPN_repos/
 └── amneziawg-android/    JNI bridge for AmneziaWG
 ```
 
-Every fork carries the same branch name, `feat/strict-tunnel-isolation`, plus a local
-`…-prerebase` backup of the state before the last rebase.
+The three forks with a pull request carry layered branches ([[A13]]):
+`pr/strict-split-tunneling` for the PR, `release` for test releases, `lab` for measurements,
+each built on the one below. The Xray forks carry `feat/strict-tunnel-isolation`.
 
 ## How the pieces connect
 

@@ -1,8 +1,8 @@
 #!/bin/bash
-# Drive AmneziaVPN fork builds from adb, without taps (A12). Two builds carry the control:
-#   org.amnezia.vpn.strict  test release (feat, AdbControl.kt, extra adb_ctl, tag AmneziaAdbCtl)
-#   org.amnezia.vpn.exp     experimental build (local exp/lab, ExpControl.kt, extra exp_ctl,
-#                           tag AmneziaExpCtl) — also a live filter switch and counters
+# Drive AmneziaVPN fork builds from adb, without taps (A12). Both builds carry the same control
+# (AdbControl.kt, extra adb_ctl, logcat tag AmneziaAdbCtl):
+#   org.amnezia.vpn.strict  test release, branch release
+#   org.amnezia.vpn.exp     lab build, branch lab (A13): also a live filter switch and counters
 #
 #   tools/awgctl.sh "cmd=status"
 #   tools/awgctl.sh "cmd=reconnect mode=include add=com.termux strict=1"
@@ -19,10 +19,8 @@
 # Set ANDROID_SERIAL when adb lists the phone twice (IP:port and mDNS name).
 set -u
 PKG=${AWG_PKG:-org.amnezia.vpn.strict}
-case "$PKG" in
-    *.exp) EXTRA=exp_ctl; TAG=AmneziaExpCtl ;;
-    *) EXTRA=adb_ctl; TAG=AmneziaAdbCtl ;;
-esac
+EXTRA=adb_ctl
+TAG=AmneziaAdbCtl
 if [ "$1" = strict ]; then
     adb shell setprop debug.awg.strict "$2"
     sleep 2

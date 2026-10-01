@@ -8,8 +8,11 @@
 - A11: in amnezia-client the test build installs next to the store app under its own
   applicationId, label and FileProvider authority. A `pr/*` branch must keep upstream's.
 - A12: the adb control of fork builds (AdbControl.kt) must never reach a `pr/*` branch.
+- A13: in the three forks with a pull request, branches are layers: `pr/strict-split-tunneling`
+  is contained in `release` and in every `followup/*`, and `release` in `lab`. A fix is made
+  once, on the PR branch, and the layers above it are rebased onto it, never patched apart.
 
-    python tools/preflight.py              # every local feat/* and pr/* branch of the forks
+    python tools/preflight.py              # every local branch of the forks that is checked
     python tools/preflight.py --install    # add the pre-push hook to all five forks
 
 The pre-push hook calls `--pre-push` from inside a fork with git's ref lines on stdin
@@ -38,6 +41,11 @@ IDENTITY = [
     ("client/android/AndroidManifest.xml", 'android:label="-- %%INSERT_APP_NAME%% --"'),
     ("client/android/AndroidManifest.xml", 'android:authorities="org.amnezia.vpn.qtprovider"'),
 ]
+
+# A13: the layers of the forks that have a pull request, each contained in the next
+PR_BRANCH = "pr/strict-split-tunneling"
+LAYERED = {"amneziawg-go", "amneziawg-android", "amnezia-client"}
+CHECKED = ("feat/", "pr/", "followup/", "release", "lab")
 
 HOOK_SCRIPT = """#!/bin/sh
 # Installed by tools/preflight.py --install in the umbrella repo. See G04, G06 and A11.
@@ -99,8 +107,31 @@ def bad_identity(repo, commit):
     return found
 
 
+def is_ancestor(repo, a, b):
+    return subprocess.run(["git", "-C", repo, "merge-base", "--is-ancestor", a, b],
+                          capture_output=True).returncode == 0
+
+
+def has_branch(repo, branch):
+    return subprocess.run(["git", "-C", repo, "rev-parse", "--verify", "--quiet",
+                           f"refs/heads/{branch}"], capture_output=True).returncode == 0
+
+
+def bad_layer(repo, commit, branch):
+    """A13: the layer below `branch` must be contained in it."""
+    below = {"release": PR_BRANCH, "lab": "release"}.get(branch)
+    if below is None and branch.startswith("followup/"):
+        below = PR_BRANCH
+    if below is None or not has_branch(repo, below) or is_ancestor(repo, below, commit):
+        return []
+    return [f"{branch} does not contain {below}: rebuild the layer with "
+            f"`git rebase --onto {below} <old {below}> {branch}`  (A13)"]
+
+
 def check(repo, commit, branch):
     problems = []
+    if os.path.basename(os.path.abspath(repo)) in LAYERED:
+        problems += bad_layer(repo, commit, branch)
     if branch.startswith("pr/"):
         problems += bad_replaces(repo, commit)
         if os.path.basename(os.path.abspath(repo)) == "amnezia-client":
@@ -126,10 +157,10 @@ def all_branches():
         if not os.path.isdir(repo):
             continue
         refs = git(repo, "for-each-ref", "--format=%(refname:short) %(objectname)",
-                   "refs/heads/feat/", "refs/heads/pr/").split("\n")
+                   "refs/heads/").split("\n")
         for ref in filter(None, refs):
             branch, commit = ref.split()
-            if branch.endswith("-prerebase"):  # local snapshots, never pushed
+            if not branch.startswith(CHECKED) or branch.endswith("-prerebase"):
                 continue
             problems = check(repo, commit, branch)
             report(name, branch, problems)
@@ -146,7 +177,7 @@ def pre_push():
         if len(parts) != 4 or parts[1] == ZERO:  # a deletion carries nothing to check
             continue
         branch = parts[2].removeprefix("refs/heads/")
-        if not branch.startswith(("feat/", "pr/")):
+        if not branch.startswith(CHECKED):
             continue
         problems = check(repo, parts[1], branch)
         report(name, branch, problems)

@@ -596,7 +596,8 @@ lookup and is allowed after it. This happens to every active UDP flow once per T
 calls, games. With the pending table full, all its packets are dropped until there is
 room ([[G19]], [[G15]]).
 
-**Fix:** open. Two prototypes on the fork's `exp/lab`, both measured on the phone with
+**Fix:** `raN` with N = 2, in amneziawg-go#199 since 2026-09-30 (`9c673ef`; `release` and
+strict.7 carry it). How it was chosen: two prototypes on the former `exp/lab`, both measured on the phone with
 the same probe (`m1-udp-flow.txt`, `m1-udp-flow-ra2.txt`; the filter removed: 0.14%, no
 10 s rhythm, `ctl-strictOFF.txt`):
 - `rv` keeps passing the flow on its expired allowed verdict while it is judged again, for
@@ -615,7 +616,7 @@ Holding more packets per flow keeps the rule that nothing passes without a fresh
 but stalls the flow for the lookup and still drops under load.
 
 **How to spot it:** loss on long-lived UDP flows in strict mode, in bursts about 10 s
-apart. The `exp/lab` build logs `udp_expired_rejudged` and `drop_held_cap` under the tag
+apart. The lab build logs `refresh_started` and `drop_held_cap` under the tag
 `AmneziaWG/uidfilter`.
 
 **Portable:** yes — any verdict cache with a TTL in front of a per-flow hold with a cap
@@ -623,7 +624,7 @@ apart. The `exp/lab` build logs `udp_expired_rejudged` and `drop_held_cap` under
 ## G21. A burst that opens a UDP flow keeps only its first four packets
 
 **Context:** device measurements with the experimental build, 2026-09-28
-(`tools/udp_flow_probe.py`, counters of the fork's `exp/lab`).
+(`tools/udp_flow_probe.py`, counters of the fork's former `exp/lab`).
 
 **Symptom:** a new UDP socket in a listed app sends 20 datagrams back to back: 4 arrive,
 16 are lost, in 3 of 3 runs. Every run of the long-flow probe loses the same 16 in its
@@ -636,9 +637,9 @@ and only `maxHeldPerFlow` (4) packets are held meanwhile; the rest are dropped
 retry. A sender that puts more than four datagrams on a new flow before its first answer
 loses the tail and waits for its own retransmit timer.
 
-**Fix:** open. Raising the cap costs memory only inside the existing 1 MiB bound per
-device, and packets older than `maxHoldTime` are dropped anyway. `exp/lab` takes the cap
-from its `hN` option.
+**Fix:** the cap is 16, in amneziawg-go#199 since 2026-09-30 (`35f643f`). It costs memory
+only inside the existing 1 MiB bound per device, and packets older than `maxHoldTime` are
+dropped anyway. The lab build takes the cap from its `hN` option.
 
 **How to spot it:** loss only at the start of UDP flows, never later; `drop_held_cap` in
 the first report after a flow opens.
@@ -665,7 +666,8 @@ inside and the SYN-ACK passes. An excluded app cannot use that to accept connect
 through the tunnel: Android routes its SYN-ACK away from `tun0`, with the filter or
 without it, and the filter never sees one (`m9-inbound-exclude.txt`).
 
-**Fix:** open. The `sa` prototype on `exp/lab` asks about the listener instead, the same
+**Fix:** on the branch `followup/inbound-synack` of amneziawg-go (`286bc02`), kept out of
+#199 so it does not grow, and in `release` and strict.7. It asks about the listener instead, the same
 local address with an unspecified remote, which the kernel's exact lookup resolves to the
 listening socket — owned by the app that will get the connection. 5 of 5, in 2 of 2 runs.
 A SYN-ACK from a connecting socket, in TCP simultaneous open, is then denied: it has no
@@ -691,7 +693,8 @@ somewhere between 400 and 700 bytes even unfragmented (`m2-fragments.txt`).
 and the filter drops IPv4 fragments as packets it cannot attribute ([[G11]], [[A03]]): only
 the first fragment carries the ports. The counters show two `unattr_frag` per datagram.
 
-**Fix:** open. The `frag` prototype on `exp/lab` judges the first fragment like any
+**Fix:** on the branch `followup/fragments` of amneziawg-go (`362d674`), kept out of #199,
+and in `release` and strict.7. It judges the first fragment like any
 packet of its flow, and lets the later fragments with the same source, destination,
 protocol and identification follow it for `maxHoldTime`; a later fragment whose first
 one was not seen is still dropped. An app cannot choose the identification, and
@@ -727,7 +730,8 @@ often it happens. Workers exit whenever the filter is replaced or removed: on ev
 disconnect, every reconnect (a network change included, which calls `turnOffVpn`), and
 every strict toggle.
 
-**Fix:** `342f9ec` on the fork's `exp/lab`: workers are not locked. When one exits its
+**Fix:** workers are not locked: `342f9ec` on the former `exp/lab`, in amneziawg-go#199
+since 2026-09-30 (`ba14bc1`), released in strict.7. When one exits its
 thread goes back to the Go scheduler and stays attached, so no thread is ever detached with
 signals blocked. Checked on the phone with 32 workers and a steady 3000 flows/s: 0 deaths in
 300 toggles, against 1 in 60 without the fix under the same load
@@ -755,7 +759,8 @@ so on, and `AmneziaVpnService.isRunning` compares that with the process names
 (`org.amnezia.vpn.exp:amneziaAwgService`). The check fails, and the reopened activity never
 binds to the service. Upstream ships one applicationId and does not have this.
 
-**Fix:** compare the package name plus the suffix: first on the local `exp/lab`
-(`ae9eaf3a`), since 2026-09-30 on `feat` with the side-by-side identity (`17434ae5`, [[A11]]).
+**Fix:** compare the package name plus the suffix: first on the former local `exp/lab`
+(`ae9eaf3a`), since 2026-09-30 in the test release with the side-by-side identity
+(`17434ae5` on the old `feat`, now a fork-only commit of `release`, [[A11]]).
 
 **How to spot it:** any build with a changed applicationId; `processName` in `VpnProto.kt`.

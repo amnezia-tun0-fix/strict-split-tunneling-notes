@@ -12,6 +12,7 @@
 - **A10** · Include mode with strict filtering does not support Private DNS by hostname
 - **A11** · Test builds install next to the store app, as `org.amnezia.vpn.strict`
 - **A12** · Fork builds take commands from adb through a system property
+- **A13** · Fork branches are layers: `pr` → `release` → `lab`
 
 ## Big picture
 
@@ -275,7 +276,8 @@ The AmneziaWG path follows the same pattern one level deeper. `amneziawg-android
 `recipes/awg-android` clones the `amneziawg-android` fork and checks out a pinned commit,
 under version `3.1.20260814-strict.N`. This recipe fetches with `git clone`, not an archive,
 so there is no `sha256` to recompute. After a push to the fork `_commit` changes, and the
-`strict.N` suffix goes up with it here and in the root `conanfile.py` (now `strict.7`).
+`strict.N` suffix goes up with it here and in the root `conanfile.py` (`strict.8` on
+`release`; the lab build uses `strict.expN`, [[A13]]).
 Test releases were numbered separately (`v5.0.3.1-strict.1` to `strict.3` were built on
 recipes `strict.4` and `strict.5`), and the two counters got mixed up in writing. From
 `strict.7` on, a release takes the number of the recipe it is built on; `strict.4` to
@@ -341,8 +343,8 @@ failed attach, or a Java exception means deny ([[A03]]).
 (`runtime.LockOSThread`), so exactly four threads got attached and each exited with its
 worker when `Set` replaced the filter. A locked thread exits with every signal blocked, the
 pthread key detached it from the JVM right there, and the process could die of a SIGSEGV
-the JVM would normally handle ([[G24]]). On `exp/lab` workers are no longer pinned
-(`342f9ec`; the PR branch still pins them until the user decides): an exiting worker's
+the JVM would normally handle ([[G24]]). Workers are no longer pinned, in #199 since
+2026-09-30 (`ba14bc1`; first `342f9ec` on the former `exp/lab`): an exiting worker's
 thread returns to the Go scheduler and stays attached, as
 gomobile's threads do on the Xray path. More than four threads may end up attached. The
 destructor now runs only if Go itself ends a thread. Kotlin passes a
@@ -401,9 +403,10 @@ from one branch with a flag* — a second variant to build, name and explain in 
 for a gain nobody asked for; the one build that updated strict.1–3 in place was not
 published.
 
-**Decision:** the working branch `feat/strict-tunnel-isolation` of amnezia-client builds as
-`applicationId = "org.amnezia.vpn.strict"` with the label «AmneziaVPN Strict», in one
-fork-only commit (`17434ae5`). The Java/Kotlin package and Gradle `namespace` stay
+**Decision:** the `release` branch of amnezia-client ([[A13]]) builds as
+`applicationId = "org.amnezia.vpn.strict"` with the label «strct-AmnzVPN», in fork-only
+commits (`17434ae5` on the old `feat`; the label, short enough for the launcher to show in
+full, since 2026-10-02, `0c226bf7`; strict.1–7 carry «AmneziaVPN Strict»). The Java/Kotlin package and Gradle `namespace` stay
 `org.amnezia.vpn`. Three things have to follow the applicationId, found with the
 experimental build: the FileProvider authority (`${applicationId}.qtprovider`, which Qt
 derives from the package name), the running-service check in
@@ -441,11 +444,11 @@ activity starts the VPN service with that extra; the service reads the property,
 config it saved last (mode, app list, strict flag) and connects, disconnects or reconnects.
 An app that sends the same intent can only repeat the shell's last command. The code is
 `AdbControl.kt` plus a few lines in `AmneziaActivity` and `AmneziaVpnService`, in one
-fork-only commit on `feat` (`28abcddc`); `tools/preflight.py` refuses a `pr/*` branch that
-carries it. `tools/awgctl.sh` wraps it; usage is in
-[references/device-testing.md](references/device-testing.md). The experimental build has the
-same control under the extra `exp_ctl`, plus what stays out of test releases: switchable
-prototypes, counters and a live filter switch in the Go library.
+fork-only commit of `release` (`28abcddc` on the old `feat`); `tools/preflight.py` refuses a
+`pr/*` branch that carries it. `tools/awgctl.sh` wraps it; usage is in
+[references/device-testing.md](references/device-testing.md). The lab build ([[A13]]) has the
+same control, plus what stays out of test releases: counters, switches and a live filter
+switch in the Go library.
 
 **Consequences:** runs on the phone need no taps once a key is imported. The UI does not see
 changes made this way, and a connect from the UI sends its own config over them. Two bugs of
@@ -454,3 +457,45 @@ service stop itself between the two halves, and an activity already on screen di
 to the service, so its button did not follow the tunnel. Keeping the counters out of test
 releases keeps their filter code identical to the pull request. *Divergence from upstream:*
 fork-only; one new file and three hooks.
+
+## A13. Fork branches are layers: `pr` → `release` → `lab`
+
+**Context:** until 2026-10-01 amneziawg-go, amneziawg-android and amnezia-client each held
+three parallel histories of the same code: `pr/strict-split-tunneling` (what reviewers
+see), `feat/strict-tunnel-isolation` (test releases) and `exp/lab` (measurements). None
+was built on another. Every fix was committed twice, in `pr` and in `feat`, under different
+hashes (`195e166` and `7fb569e`), and that the two matched rested on care alone. `exp/lab`
+fell behind: it carried prototypes of fixes whose final form was already in the PR, so the
+lab build no longer measured the code that was released.
+
+**Alternatives:** *keep the three lines and sync them by hand* — the state that produced
+the drift. *Make `feat` the source and cut `pr` from it before each push* — the PR history
+would be rewritten under reviewers on every round.
+
+**Decision:** each branch is built on the one below it, and a fix is made once, on `pr`:
+
+```
+upstream master / dev
+ └─ pr/strict-split-tunneling   what the pull request carries; fixes go here
+     ├─ followup/*              one fix each, kept out of the PR so it does not grow
+     └─ release                 pr + follow-ups + fork-only commits (pins, .strict, adb)
+         └─ lab                 release + measurement tools (counters, switches)
+```
+
+After a change on `pr`, the layers above are rebased onto it (`git rebase --onto pr <old pr>
+release`, then the same for `lab`), and their pins move with them ([[A07]]).
+`tools/preflight.py` checks it at every push: a `release` that does not contain `pr`, a
+`followup/*` that does not, or a `lab` that does not contain `release` is refused.
+`feat/strict-tunnel-isolation` became `release` through GitHub's rename, so old links
+redirect; the old histories are kept under tags `archive/feat-strict-tunnel-isolation-2026-10-01`
+and `archive/exp-lab-2026-10-01`, and the release tags strict.1–7 still point into them.
+The lab build keeps the applicationId `org.amnezia.vpn.exp` («lab-strct-AmnzVPN») so it updates
+in place, and uses the release's adb control ([[A12]]).
+
+**Consequences:** the lab build measures release code plus instruments, and release is
+the PR plus what a fork needs, with no hand-kept copy in between. In amneziawg-android
+`release` now sits on upstream `master` after `v3.1.20260814`, as `pr` does: the three
+upstream commits there (banner, version, CI) are outside what the `awg-android` recipe
+builds. The Xray forks (amnezia-libxray, amnezia-tun2socks) keep their one branch,
+`feat/strict-tunnel-isolation`: they have no pull request yet, and published texts link to
+it. *Divergence from upstream:* none; this is how our forks are organised.
