@@ -53,14 +53,19 @@ rebased on top.
 
 On the phone the lab build gave the usual answer, 0/6 with the filter and 6/6 with it
 removed live (`evidence/branches-2026-10-02/`). It also showed that an adb `reconnect` can
-stop the service it has just restarted; the code is release's, so strict.7 has it too.
+stop the service it has just restarted; the code is release's, so strict.7 has it too. 49
+reconnects in a row did not repeat it; sending the app to the background right after one
+did, 6 of 6. With the service's debug log on, the cause was plain: the state handler acts on
+`DISCONNECTED` only after a suspending store, by which time the reconnect has cleared its
+guard. Fixed on `release` (`07504e31`), 10 of 10 after. The first guess was this, and was
+set aside on a reading of the code that missed the suspension.
 
 While updating the documents, G20–G25 still said "Fix: open" two days after the fixes
 went into #199; corrected.
 
 Decisions: [[A13]]; [[A07]], [[A09]], [[A11]], [[A12]] amended · Gotchas: [[G20]]–[[G25]] amended
-Status: Working · known issue: adb reconnect
-Next: the cache comparison for the reply to @makekryl, on the lab build
+Status: Working
+Next: the cache comparison for the reply to @makekryl, by `~/.claude/plans/cache-study-makekryl.md`
 
 ## 2026-10-01 — strict.7 released, next to the store app, with the crash fix
 

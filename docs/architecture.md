@@ -454,7 +454,11 @@ switch in the Go library.
 changes made this way, and a connect from the UI sends its own config over them. Two bugs of
 the first version were found by using it and are fixed in the commit: a `reconnect` let the
 service stop itself between the two halves, and an activity already on screen did not bind
-to the service, so its button did not follow the tunnel. Keeping the counters out of test
+to the service, so its button did not follow the tunnel. A third, found 2026-10-02: the state
+handler suspends on a `VpnStateStore` write between logging `DISCONNECTED` and acting on it,
+so by then a `reconnect` had cleared its flag, and with the app in the background the
+handler stopped the tunnel it had just restarted. It now stops the service only while the
+state is still `DISCONNECTED` (`07504e31`); reproduced 6 of 6 before, 0 of 10 after. Keeping the counters out of test
 releases keeps their filter code identical to the pull request. *Divergence from upstream:*
 fork-only; one new file and three hooks.
 

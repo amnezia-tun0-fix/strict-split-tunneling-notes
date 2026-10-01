@@ -58,7 +58,9 @@ history in [journal.md](journal.md).
   adb ([[A12]]). Released as `v5.0.3.1-strict.7` 2026-10-01 (tag on `28abcddc`, sha256
   `e000a327…`), linked from #2457; strict.3 is superseded (it has [[G24]]). Lab build
   «lab-strct-AmnzVPN» (`org.amnezia.vpn.exp`) from `lab`, installed 2026-10-02 (`8ef4b961`):
-  leak probe 0/6 with the filter, 6/6 with it removed live, counters in logcat.
+  leak probe 0/6 with the filter, 6/6 with it removed live, counters in logcat. Save-logs is
+  on in it. adb `reconnect` fixed in `release` (`07504e31`, [[A12]]): 10/10 with the app
+  sent to the background, against 0/6 before.
   How to run anything on the phone: `references/device-testing.md`. Findings of 2026-09-28:
   `evidence/research-2026-09-28/REPORT.md`.
 - **Cloned apps in include mode** work since 2026-09-24: the guard matches app ids, not uids
@@ -91,13 +93,7 @@ history in [journal.md](journal.md).
 
 ## Known issues
 
-- **`cmd=reconnect` from adb can stop the service it just restarted** (seen on the lab build
-  2026-10-02, the code is release's `AdbControl`, so strict.7 has it too): the new tunnel
-  starts and closes 1 ms later, the VPN service is destroyed, `tun0` is gone. Likely cause:
-  `adbReconnecting` is cleared right after `connect()`, and the state handler, seeing a late
-  `DISCONNECTED` while the UI is not bound, calls `stopService()`. Not confirmed. Workaround:
-  `cmd=disconnect`, then `cmd=connect`. Candidate fix: clear the flag in the state handler
-  on `CONNECTED` instead (`evidence/branches-2026-10-02/`).
+None open.
 
 ## Blocked
 
