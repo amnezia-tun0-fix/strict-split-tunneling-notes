@@ -26,6 +26,7 @@ see [method-delta.md](method-delta.md) for why.
 | [conventions.md](conventions.md) | Writing code destined for someone else's PR |
 | [references/upstream-watch.md](references/upstream-watch.md) | What upstream did, and what it cost us |
 | [references/device-testing.md](references/device-testing.md) | Checks on the phone: builds, adb control, Termux, probes, method |
+| [references/cache-study-2026-10.md](references/cache-study-2026-10.md) | The verdict cache against a FIFO, measured for #199 |
 | [_meta.md](_meta.md) | Where the rules for these documents live |
 
 ## What to read when

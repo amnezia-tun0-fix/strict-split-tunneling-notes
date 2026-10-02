@@ -17,8 +17,8 @@ Not affiliated with Amnezia. These are one contributor's notes, published becaus
 ## Start here
 
 - [docs/start.md](docs/start.md) — what to read for which question
-- [docs/architecture.md](docs/architecture.md) — the decisions, A01–A12: why the filter is in userspace, why Go asks and Kotlin decides, why an unresolved owner is denied, why the test build installs next to the official app
-- [docs/gotchas.md](docs/gotchas.md) — twenty-five traps that cost time, including the six worth knowing before writing this kind of filter:
+- [docs/architecture.md](docs/architecture.md) — the decisions, A01–A13: why the filter is in userspace, why Go asks and Kotlin decides, why an unresolved owner is denied, why the test build installs next to the official app
+- [docs/gotchas.md](docs/gotchas.md) — twenty-six traps that cost time, including the six worth knowing before writing this kind of filter:
   - **G11** any app can ping through `tun0`, and ICMP has no owner to look up
   - **G08** `getConnectionOwnerUid` answers `INVALID_UID` for any app your VPN does not cover, not only when no socket matches
   - **G09** a socket the app has closed belongs to UID 0, so re-judging a flow drops its FIN
@@ -27,6 +27,7 @@ Not affiliated with Amnezia. These are one contributor's notes, published becaus
   - **G24** a Go thread that called into Java and is locked to its goroutine exits with every signal blocked, and detaching it from the JVM there can kill the process without a tombstone
 - [docs/status.md](docs/status.md) — what works, what is fragile, what is deferred
 - [docs/references/device-testing.md](docs/references/device-testing.md) — how the checks on a phone are run: the builds, driving them from adb, the probes, the method
+- [docs/references/cache-study-2026-10.md](docs/references/cache-study-2026-10.md) — the verdict cache against a FIFO without expiry, measured for #199: equal speed, steadier bursty flows under a flood, and where the FIFO wins
 - [docs/journal.md](docs/journal.md) — how it went, newest first
 
 ## Probes
