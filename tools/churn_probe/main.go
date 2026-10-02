@@ -8,9 +8,17 @@
 // Build:  GOOS=android GOARCH=arm64 CGO_ENABLED=0 go build -o churn_probe .
 // Run from `adb shell` (/data/local/tmp), two processes at once:
 //
-//	churn_probe flows   -rate 1000 -dur 60s [-hold 2s] [-dst 192.0.2.1:9] [-bind tun0]
+//	churn_probe flows   -rate 1000 -dur 60s [-hold 2s] [-dst 192.0.2.1:9] [-dports N] [-bind tun0]
 //	churn_probe connect -n 40 [-dst 1.1.1.1:443] [-timeout 5s] [-bind tun0]
 //	churn_probe dns     -rate 1000 -dur 10s [-dst 1.1.1.1:53] [-wait 2s] [-bind tun0]
+//	churn_probe stream  -rate 50 -dur 60s [-flows 1] [-burst 1] [-dst 1.1.1.1:53] [-wait 2s] [-bind tun0]
+//
+// stream keeps one UDP socket per flow for the whole run, so each flow is one
+// long-lived 5-tuple, and sends DNS queries on it at a fixed rate; it reports
+// how many were answered and where the unanswered ones fell. It is the long
+// flow of an allowed app (QUIC, a call) whose verdict a cache keeps or loses.
+// -burst N sends the queries N back to back, as QUIC does: a flow held while it
+// is judged keeps only the first packets of a burst.
 //
 // flows opens a fresh unconnected UDP socket per flow and sends one datagram:
 // every one is a new source port, so a new flow for the filter. By default the
@@ -18,13 +26,18 @@
 // up, the platform's most expensive answer. -hold keeps each socket open that
 // long, so every owner resolves. The default destination is TEST-NET-1, which
 // the server drops. -bind tun0 binds the sockets to the tunnel
-// (SO_BINDTODEVICE), as an app outside the VPN would to bypass it.
+// (SO_BINDTODEVICE), as an app outside the VPN would to bypass it. Source ports
+// come from the kernel's ephemeral range, about 28000 on Android, so at 5000
+// flows/s to one destination a 5-tuple repeats every few seconds and a cache of
+// denied verdicts absorbs part of the flood; -dports spreads the destination
+// port so that it does not.
 package main
 
 import (
 	"context"
 	"flag"
 	"fmt"
+	"math/rand/v2"
 	"net"
 	"os"
 	"sort"
@@ -42,7 +55,7 @@ func main() {
 		os.Args = append(os.Args[:1], os.Args[2:]...)
 	}
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: churn_probe flows|connect|dns [flags]")
+		fmt.Fprintln(os.Stderr, "usage: churn_probe flows|connect|dns|stream [flags]")
 		os.Exit(2)
 	}
 	switch os.Args[1] {
@@ -52,6 +65,8 @@ func main() {
 		connect(os.Args[2:])
 	case "dns":
 		dns(os.Args[2:])
+	case "stream":
+		stream(os.Args[2:])
 	default:
 		fmt.Fprintln(os.Stderr, "unknown mode", os.Args[1])
 		os.Exit(2)
@@ -81,6 +96,7 @@ func flows(args []string) {
 	dst := fs.String("dst", "192.0.2.1:9", "destination of the datagrams")
 	bind := fs.String("bind", "", "device to bind the sockets to, e.g. tun0")
 	hold := fs.Duration("hold", 0, "keep each socket open this long after sending")
+	dports := fs.Int("dports", 0, "spread flows over this many destination ports from -dst's port, at random")
 	fs.Parse(args)
 
 	to, err := net.ResolveUDPAddr("udp4", *dst)
@@ -104,7 +120,11 @@ func flows(args []string) {
 		}
 		owed := int(float64(*rate) * now.Sub(start).Seconds())
 		for sent+failed < owed {
-			if sendOne(lc, to, payload, *hold) {
+			dst := net.Addr(to)
+			if *dports > 1 {
+				dst = &net.UDPAddr{IP: to.IP, Port: to.Port + rand.IntN(*dports)}
+			}
+			if sendOne(lc, dst, payload, *hold) {
 				sent++
 			} else {
 				failed++
@@ -194,6 +214,130 @@ func dns(args []string) {
 	wg.Wait()
 	fmt.Printf("dns: rate %d/s, %d queries, %d answered (%.1f%%), %d failed to send\n",
 		*rate, sent, answered.Load(), 100*float64(answered.Load())/float64(max(sent, 1)), failed.Load())
+}
+
+// stream sends DNS queries on long-lived sockets, one per flow, and counts the
+// answers: per flow, per second of the run, and the longest run of unanswered
+// queries, which shows a flow held while it is judged again.
+func stream(args []string) {
+	fs := flag.NewFlagSet("stream", flag.ExitOnError)
+	rate := fs.Int("rate", 50, "queries per second on each flow")
+	dur := fs.Duration("dur", 60*time.Second, "how long to run")
+	nflows := fs.Int("flows", 1, "long-lived flows, each its own socket")
+	burst := fs.Int("burst", 1, "queries sent back to back")
+	dst := fs.String("dst", "1.1.1.1:53", "DNS server")
+	wait := fs.Duration("wait", 2*time.Second, "how long to wait for the last answers")
+	bind := fs.String("bind", "", "device to bind the sockets to, e.g. tun0")
+	fs.Parse(args)
+	lc := net.ListenConfig{Control: bindControl(*bind)}
+
+	to, err := net.ResolveUDPAddr("udp4", *dst)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	query := []byte{0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0,
+		7, 'e', 'x', 'a', 'm', 'p', 'l', 'e', 3, 'c', 'o', 'm', 0, 0, 1, 0, 1}
+	total := int(float64(*rate) * dur.Seconds())
+	if total > 65536 {
+		fmt.Fprintln(os.Stderr, "at most 65536 queries per flow: the id is 16 bits")
+		os.Exit(2)
+	}
+
+	type flowRun struct {
+		pc       net.PacketConn
+		answered []atomic.Bool
+		sentAt   []time.Duration
+		sent     int
+	}
+	runs := make([]*flowRun, *nflows)
+	for i := range runs {
+		pc, err := lc.ListenPacket(context.Background(), "udp4", ":0")
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		runs[i] = &flowRun{pc: pc, answered: make([]atomic.Bool, total), sentAt: make([]time.Duration, total)}
+	}
+	var wg sync.WaitGroup
+	for _, fr := range runs {
+		wg.Add(1)
+		go func(fr *flowRun) {
+			defer wg.Done()
+			buf := make([]byte, 512)
+			for {
+				n, _, err := fr.pc.ReadFrom(buf)
+				if err != nil {
+					return // closed at the end of the run
+				}
+				if id := int(buf[0])<<8 | int(buf[1]); n >= 2 && id < total {
+					fr.answered[id].Store(true)
+				}
+			}
+		}(fr)
+	}
+
+	start := time.Now()
+	ticker := time.NewTicker(time.Millisecond)
+	for now := range ticker.C {
+		owed := min(int(float64(*rate)*now.Sub(start).Seconds()) / *burst * *burst, total)
+		for _, fr := range runs {
+			for ; fr.sent < owed; fr.sent++ {
+				q := append([]byte(nil), query...)
+				q[0], q[1] = byte(fr.sent>>8), byte(fr.sent)
+				fr.sentAt[fr.sent] = now.Sub(start)
+				fr.pc.WriteTo(q, to)
+			}
+		}
+		if owed == total {
+			break
+		}
+	}
+	ticker.Stop()
+	time.Sleep(*wait)
+	for _, fr := range runs {
+		fr.pc.Close()
+	}
+	wg.Wait()
+
+	secs := int(dur.Seconds()) + 1
+	lostPerSec := make([]int, secs)
+	sent, answered, worstGap := 0, 0, time.Duration(0)
+	for i, fr := range runs {
+		ok, gapStart, gap := 0, -1, time.Duration(0)
+		for q := 0; q < fr.sent; q++ {
+			if fr.answered[q].Load() {
+				ok++
+				if gapStart >= 0 {
+					gap = max(gap, fr.sentAt[q]-fr.sentAt[gapStart])
+					gapStart = -1
+				}
+				continue
+			}
+			lostPerSec[int(fr.sentAt[q].Seconds())]++
+			if gapStart < 0 {
+				gapStart = q
+			}
+		}
+		if gapStart >= 0 {
+			gap = max(gap, fr.sentAt[fr.sent-1]-fr.sentAt[gapStart])
+		}
+		sent += fr.sent
+		answered += ok
+		worstGap = max(worstGap, gap)
+		if *nflows <= 8 {
+			fmt.Printf("flow %d: %d sent, %d answered, longest unanswered run %v\n", i, fr.sent, ok, gap.Round(time.Millisecond))
+		}
+	}
+	var lossy []string
+	for s, n := range lostPerSec {
+		if n > 0 {
+			lossy = append(lossy, fmt.Sprintf("%ds:%d", s, n))
+		}
+	}
+	fmt.Printf("stream: %d flows x %d/s in bursts of %d for %v: %d sent, %d answered (%.2f%%), longest unanswered run %v\n",
+		*nflows, *rate, *burst, *dur, sent, answered, 100*float64(answered)/float64(max(sent, 1)), worstGap.Round(time.Millisecond))
+	fmt.Printf("stream: unanswered by second: %s\n", strings.Join(lossy, " "))
 }
 
 func connect(args []string) {

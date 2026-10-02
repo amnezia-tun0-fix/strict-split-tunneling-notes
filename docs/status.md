@@ -29,7 +29,7 @@ history in [journal.md](journal.md).
   the split-tunnelling drawer and Settings → Connection, enabled only for AmneziaWG/WireGuard
   and while disconnected ([[A05]]).
 - **Build pipeline.** Recipes build `amnezia-libxray` (`1.0.3-strict.1`) and `awg-android`
-  (`…-strict.8` on `release`, `…-strict.exp5` on `lab`) from our forks, pinned by commit; a
+  (`…-strict.8` on `release`, `…-strict.exp6` on `lab`) from our forks, pinned by commit; a
   test release takes the recipe's number ([[A07]]). `deploy/build.sh` under WSL signs with
   the debug key ([[A08]]).
   Check the artefact, not the log.
@@ -59,7 +59,8 @@ history in [journal.md](journal.md).
   `e000a327…`), linked from #2457; strict.3 is superseded (it has [[G24]]). Lab build
   «lab-strct-AmnzVPN» (`org.amnezia.vpn.exp`) from `lab`, installed 2026-10-02 (`8ef4b961`):
   leak probe 0/6 with the filter, 6/6 with it removed live, counters in logcat. Save-logs is
-  on in it. adb `reconnect` fixed in `release` (`07504e31`, [[A12]]): 10/10 with the app
+  on in it. On it since that day: `strict.exp6`, five caches behind `c=`. Not built yet:
+  `strict.exp7` / `strict.8`, rebuilt on the [[G26]] fix. adb `reconnect` fixed in `release` (`07504e31`, [[A12]]): 10/10 with the app
   sent to the background, against 0/6 before.
   How to run anything on the phone: `references/device-testing.md`. Findings of 2026-09-28:
   `evidence/research-2026-09-28/REPORT.md`.
@@ -93,7 +94,8 @@ history in [journal.md](journal.md).
 
 ## Known issues
 
-None open.
+- **adb control with the screen locked** ([[A12]]): wrong app list once, a UI crash once;
+  cause not established (`references/device-testing.md`).
 
 ## Blocked
 

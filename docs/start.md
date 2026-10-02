@@ -53,9 +53,14 @@ see [method-delta.md](method-delta.md) for why.
 - **Anything on the phone: a check, a probe, a measurement** →
   [references/device-testing.md](references/device-testing.md) first: the three builds, driving
   them from adb ([[A12]]), Termux over SSH, which probe answers what, how to make a run count.
+  Its first section is the user's standing grant: the agent acts on the phone itself, screen
+  input included, and asks only for the few things listed there.
 - **Wondering why something is denied** → [[G08]] first (`INVALID_UID` is mostly "not
   under our VPN"), [[A03]] for the fail-closed rule, [[G03]] for why Go cannot resolve it.
 - **Writing into these documents** → `RULES.md` of the standard, via [_meta.md](_meta.md).
+  A new rule or fact goes here, never into the root `CLAUDE.md`: that file is a pointer —
+  one line on the project, the way in, and only the rules that apply to every task, each
+  naming where it is stated here (lint check 19).
 - **A session opens with a `gh_inbox:` list** → reviewers answer in several places (a review
   on one PR, a comment on another, the issue), and the list is everything new since the
   last check. Handle each item, then run `python tools/gh_inbox.py --mark`. The list is

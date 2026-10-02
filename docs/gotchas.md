@@ -33,6 +33,7 @@ it belongs to the shared environment store. See `_meta.md`.
 - **G23** · A UDP datagram larger than the tunnel MTU never leaves, even from an allowed app
 - **G24** · The VPN service dies when the filter's workers exit, and leaves no tombstone
 - **G25** · A build with another applicationId never finds its own running VPN service
+- **G26** · A verdict reached in the background is aged from when the reader picks it up
 
 ## G01. `main-amnezia` looks like the current tun2socks branch and is a dead end
 
@@ -764,3 +765,41 @@ binds to the service. Upstream ships one applicationId and does not have this.
 (`17434ae5` on the old `feat`, now a fork-only commit of `release`, [[A11]]).
 
 **How to spot it:** any build with a changed applicationId; `processName` in `VpnProto.kt`.
+
+## G26. A verdict reached in the background is aged from when the reader picks it up
+
+**Context:** the cache study for the reply to @makekryl on amneziawg-go#199, 2026-10-02.
+The plan suspected that `refresh` lets a taken-over 5-tuple pass until `cacheTTL`; a test
+with a controlled clock showed it does not (denied 2.0 s after the inherited verdict) and
+found this instead.
+
+**Symptom:** none on a phone. In `TestExpLateCollectedVerdict` (amneziawg-go `lab`) an
+allowed flow is judged, the worker answers, and nothing else happens on the reader for a
+minute; then a denied socket takes the 5-tuple and passes for 2 s more on the minute-old
+lookup. The first verdict of a flow and a refreshed one behave the same.
+
+**Cause:** a worker marks the flow decided in `pending`, and the verdict reaches the cache
+only when the tun reader collects it: on the flow's next packet (`hold`, `refresh`) or on
+the first packet of any new flow (`collectDecided`). `cache.put` stamps it with the
+reader's clock at that moment, not the time of the lookup, and the flow's next packet
+takes the uncollected verdict as fresh. So the comment on `refresh`, "nothing passes on a
+verdict older than cacheTTL", fails on a quiet tunnel.
+
+**Fix:** amneziawg-go `4215308` on the PR branch (#199), 2026-10-02, at the user's request;
+`release` and `lab` rebuilt on it ([[A13]]). A worker stamps the verdict with the clock when
+it answers, and the cache ages the entry from that stamp. A first verdict collected more
+than `refreshAfter` after its lookup is not used: the flow is judged again, its packet held.
+A refresh collected that late still renews the entry and starts the next lookup at once,
+the packet passing on the valid entry; discarding it instead made a flow that sends every
+2 s miss every refresh and stall at the expiry (`TestRefreshKeepsActiveFlow` caught it).
+Tests: `TestStaleUncollectedVerdictNotUsed`, `TestLateRefreshJudgedAgain`,
+`TestVerdictAgedFromLookup`, all failing before the fix. Side effect: the takeover window
+after an active flow is 1.0 s, not 1.2 s, since the age no longer includes the wait for
+collection. On a phone new flows collect verdicts within milliseconds
+(`TestExpVerdictCollectedByOtherFlow`), so the fix closes a quiet-tunnel case only.
+
+**How to spot it:** a value computed by one goroutine and published by another; ask which
+clock the publisher stamps it with, and how long it can wait unpublished.
+
+**Portable:** yes — any cache filled asynchronously and aged on insertion
+

@@ -5,6 +5,7 @@ registers and is not restated here. `git log` in each fork has what changed line
 
 ## Index
 
+- **2026-10-02** — the cache @makekryl questioned, measured: speed equal, the difference is under a flood
 - **2026-10-02** — the fork branches become layers, so the lab build measures release code
 - **2026-10-01** — strict.7 released, next to the store app, with the crash fix
 - **2026-09-28** — a study of how to improve the filter found a crash in our own bridge
@@ -31,6 +32,57 @@ registers and is not restated here. `git log` in each fork has what changed line
 - **2026-09-16** — rebased all four branches onto current upstream
 - **2026-07-26** — forks confirmed as the only surviving copy
 - **2026-07-01** — filter implemented on both datapaths
+
+## 2026-10-02 — the cache @makekryl questioned, measured: speed equal, the difference is under a flood
+
+@makekryl asked on #199 whether the verdict cache needs expiry, refresh and its eviction
+rule, or whether a plain FIFO would do and be faster. The user wanted the answer measured.
+The lab build gained five caches behind one switch (`c=`): the PR's, the FIFO, the PR's
+without refresh, refresh with packets held, and the FIFO with every TCP packet through it,
+as #174 does. 61 runs on the phone, each mode twice in ABBA order, with the filter removed
+live as the control, plus benchmarks on the phone and the PC.
+
+The speed question closed first and against the premise: a cached UDP packet costs 47–60 ns
+in either cache, and the refresh is not on that path. Its cost is one owner lookup per
+active allowed flow every 2 s. #174's design costs five times more per TCP packet.
+
+The flood gave a result that pointed the wrong way. New flows of an allowed app fared better
+with the FIFO (97–99% answered against 88–96%), and the cause was not the cache's speed: a
+benchmark showed its eviction cheaper than the FIFO's. It was repeats. Android draws source
+ports from about 28,000, so a flood to one address repeats 5-tuples within seconds, and a
+FIFO that keeps 3300 denials answers them without a lookup. Spreading the flood over random
+destination ports made the two equal. What the PR's eviction rule does buy showed only with
+a bursty allowed flow: 97.8% answered with the FIFO, 99.7–99.9% with the PR's cache.
+
+The plan's suspicion, that the refresh lets a taken-over 5-tuple pass until the verdict
+expires, did not hold: the test denies it 2.0 s after the inherited verdict. The same test
+found [[G26]] instead. The first build of the session failed on a known WSL trap: started
+as `wsl -e bash -c`, the shell is not a login one and skips `~/.profile`, where the Android SDK
+is set. The trap had been written down; the plan's command line still lacked `-l`, so
+`build_exp.sh` now reads `~/.profile` itself. The user also granted that the agent drives
+the phone itself over adb and Termux (`references/device-testing.md`).
+
+The user had [[G26]] fixed in the PR, keeping the reply back for now. The first attempt
+discarded a late refresh as stale, and an existing test caught what that would cost: a flow
+sending every 2 s collects each refresh exactly 2 s late, so it would never be renewed and
+would stall at the expiry, the loss the refresh was added to remove. A late refresh now
+renews the entry from its lookup time and starts the next lookup at once. Rebuilding the
+layers turned up an unrelated flaky test on `followup/fragments`: nothing kept the worker
+from judging the flow between its two fragment checks, and under `-race` most batches of 20
+runs failed, before the fix as after. It now waits on a gate (0 of 40 batches).
+
+One attempt to close the FIFO's only advantage, its better showing against a naive flood,
+was measured and dropped. `pr2` evicts denials only down to seven eighths instead of all of
+them; it kept more denials (2300 against 1400) and looked level with the FIFO in an evening
+series on a hot, dark phone, but a repeat on a cool phone with the screen on put it level
+with the release cache instead (90.4% against 90.8%, the FIFO 94.0%). The evening series
+also lost its first half: an adb `connect` with the screen locked brought the tunnel up with
+the saved app list, so the "allowed" probe ran outside the VPN; `run.sh` now checks the
+tunnel's uid coverage before every run.
+
+Decisions: none · Gotchas: [[G26]] added and fixed
+Status: Working
+Next: the user approves the reply in `pr-drafts/23-reply-makekryl-cache.md`; real-use data (question 6)
 
 ## 2026-10-02 — the fork branches become layers, so the lab build measures release code
 

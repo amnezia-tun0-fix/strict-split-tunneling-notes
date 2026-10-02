@@ -3,8 +3,8 @@
 The rules for maintaining this documentation are **not copied here**. Two sources of
 truth drift apart, which is the disease the method exists to cure.
 
-Standard: https://github.com/Fast-and-Pythonic/ai-docs-method — audited against v2.1
-on 2026-09-17.
+Standard: https://github.com/Fast-and-Pythonic/ai-docs-method — audited against v2.2
+on 2026-10-02.
 
 Local method: [method-delta.md](method-delta.md). This project **does**
 deviate — it is an umbrella over several forks rather than one codebase. Where the two
