@@ -28,7 +28,8 @@ A cache switch was added to a test build. The mode is chosen when the filter is 
 - **Control:** the same tunnel with the filter removed.
 - **Order.** Each mode is run twice in ABBA order (A, B, C, C, B, A), so that drift of the phone (heat, background work) does not end up in the difference between modes. A run lasts 60 seconds.
 - **Checks.** Before every run, a script checks that the VPN covers `adb shell` and not Termux. The mode of every run is checked against the filter's log.
-- **Conditions.** Series taken in different conditions give different absolute numbers: a hot phone with its screen off answers almost half as fast. So modes are compared only within one series.
+- **Conditions.** Series taken in different conditions give different absolute numbers: a hot phone with its screen off answers the owner question about a third slower. So modes are compared only within one series.
+- **Builds.** The day series ran on the first test build; the evening and night series on a later one that also carries the fix described under "Found along the way". That fix matters only on a quiet tunnel, not under a flood.
 
 About 90 runs on the phone in all, plus benchmarks and unit tests.
 
@@ -52,11 +53,11 @@ On TCP the #174 scheme costs five times more, because every packet looks up its 
 
 One extra question to Android every 2 seconds per active allowed UDP flow. For 16 long flows that is about 6 questions a second, around 20 ms of background worker time a second.
 
-Why it is there shows on a flow that sends bursts of 20 packets, as video or a call does. While a verdict is being re-checked, the filter holds only 16 packets of the flow, and the rest are lost:
+Why it is there shows on flows that send bursts of 20 packets, as video or a call does; two such flows were run at once. While a verdict is being re-checked, the filter holds at most 16 packets of a flow, and the rest are lost:
 
-| Mode | Lost by the filter per minute | Answered |
+| Mode | Lost by the filter per minute, both flows | Answered |
 |---|---|---|
-| `pr` | 8 (the first burst only, the same everywhere) | 99.9% |
+| `pr` | 8 (4 from the first burst of each flow, the same everywhere) | 99.9% |
 | `fifo` | 8 | 99.6–99.7% |
 | `noref` (no re-check) | 40–44 | 99.4% |
 | `hold` (re-check with packets held) | 153–168 | 99.2% |
@@ -88,15 +89,15 @@ Termux opens 5000 new flows a second. Meanwhile the allowed app keeps a long flo
 
 What follows from it:
 
-- **A FIFO holds bursty flows worse.** Under a flood it pushes out the verdict of a long allowed flow about once a second. Each re-check loses the tail of a burst: about 3% against 0.1–0.3% with `pr`, which throws out denials first when full. This held in all three series.
+- **A FIFO holds bursty flows worse.** Under a flood it pushes out the verdict of a long allowed flow about once a second. Each re-check loses the tail of a burst: 2.2% and 2.9% in the two series that measured the FIFO here, against 0.1–0.3% with `pr`, which throws out denials first when full.
 - **Against a naive flood the FIFO is better by about 3 points.** Android takes source ports from about 28,000, and at 5000 flows a second to one address the 5-tuples repeat every few seconds. A FIFO remembers about 3300 denials and answers the repeats without asking Android; `pr` remembers about 1400. If the flood changes the destination port, there are no repeats, and the advantage disappears.
-- **Every mode loses new flows under a flood.** Android answers the owner question about 3700 times a second, and a flood of 5000 flows fills the queue of flows waiting for a verdict, whatever the cache. At 1000 flows a second no mode loses anything (99.5–99.8%).
+- **Every mode loses new flows under a flood.** During the flood Android answers the owner question about 4400 times a second, and a flood of 5000 flows fills the queue of flows waiting for a verdict, whatever the cache. At 1000 flows a second no mode loses anything (99.5–99.8%).
 
 **An attempt to close the gap on a naive flood: `pr2`.** It keeps more denials (about 2300) without touching approvals. In an evening series on a hot phone it seemed to catch up with the FIFO, but a repeat in good conditions gave 90.4% against 90.8% for `pr`, within the noise. It does not reach the FIFO because expired entries and approvals take up the room. It was not added to #199.
 
 ### 5. Security
 
-The leak probe and the ICMP probe from the excluded app: 0 of 6 attempts in every cache mode, and ICMP does not pass. Without the filter: 6 of 6, and ICMP is answered. The cache has no effect on the protection.
+The leak probe and the ICMP probe from the excluded app: 0 of 6 attempts with `pr`, `fifo`, `f174`, `noref` and `hold`, and ICMP does not pass (`pr2`, added later, was not probed). Without the filter: 6 of 6, and ICMP is answered. The cache has no effect on the protection.
 
 ## Found along the way
 
@@ -115,7 +116,7 @@ Everything was taken on one phone. Absolute percentages under a flood depend on 
 - Probes ([`churn_probe`](../../tools/churn_probe)):
   - flood from the excluded app: `churn_probe flows -rate 5000 -dur 50s -bind tun0 [-dports 10000]`;
   - new flows of the allowed app: `churn_probe dns -rate 100 -dur 60s`;
-  - a long flow: `churn_probe stream -rate 50 -dur 60s`, bursty with `-rate 200 -burst 20`.
+  - a long flow: `churn_probe stream -rate 50 -dur 60s`, bursty with `-flows 2 -rate 200 -burst 20`.
 - The filter's counters are in logcat under the tag `AmneziaWG/uidfilter`; [`uf_counters.py`](../../tools/uf_counters.py) sums them.
 - Benchmarks: `go test -bench 'ExpCachedUDP|ExpEstablishedTCP|ExpCacheFlood' ./uidfilter` on the `lab` branch.
 
